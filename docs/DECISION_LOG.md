@@ -36,9 +36,9 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 
 **Owner:** Pablo + Fede, with cross-team review if these choices change `GraphState` semantics.
 
-## 2026-09-10 — GraphState exporter encoding proposal
+## 2026-09-10 — GraphState exporter encoding
 
-**Status:** PROPOSED CURRENT DEFAULT pending Demu interface check before merge.
+**Status:** APPROVED CURRENT DEFAULT after Demu consumer validation.
 
 **Decision:** Implement the already-approved `GraphState` contract with a framework-agnostic numeric encoding:
 
@@ -53,8 +53,12 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 - `q_by_site` remains outside learned node features and is exposed separately through planner constraints;
 - GraphState remains Python/serialization friendly; the learned planner owns conversion to PyTorch/PyG tensors.
 
+**Consumer validation:** Demu checked the real branch locally, read the producer contract and implementation, ran the full 30-test suite and GraphState sanity script, and confirmed that the payload can be consumed by a variable-size GNN/PyG adapter without structural changes. He also confirmed the node-id mapping, bidirectional `[2,E]` edge format, separate `q_by_site` planner context, and ML-side normalization ownership.
+
+**Known limitation:** `feasibility_mask` is currently uniform per node while budget remains positive. Per-site closures, effort caps, and richer action-feasibility logic remain OPEN until action-space design and must be reviewed cross-team before training semantics are frozen.
+
 **Reason:** The Technical Specification freezes/candidates the feature families but not their tensor ordering, missing-value encoding, frontier definition, or framework representation. These choices make the producer/consumer contract executable without coupling the environment package to Demu's ML stack.
 
-**Impact:** This is interface-sensitive and must be checked by Demu before merge. If his existing prototype requires a materially different structural representation, resolve it here rather than adding adapter hacks later.
+**Impact:** M2.5 producer/consumer interface is now accepted. Demu may proceed with the GraphState-to-tensor adapter and GNN forward-pass work. Action-space, masking, reward, and evaluation semantics remain cross-team decisions.
 
 **Owner:** Team; implementation by Pablo + Fede, consumer validation by Demu.
