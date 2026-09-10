@@ -67,6 +67,32 @@ class Observation:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class ObservationBatch:
+    """Field returns produced by one mission round.
+
+    This object contains observations only. It must never expose latent occupancy.
+    """
+
+    observations: tuple[Observation, ...]
+    round: int
+    total_effort: int
+
+
+@dataclass(frozen=True, slots=True)
+class MissionAllocation:
+    site_id: str
+    effort_units: int
+    team_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MissionAction:
+    allocations: tuple[MissionAllocation, ...]
+    total_cost: int
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass(slots=True)
 class PublicState:
     """Observable environment snapshot returned by reset/step.
