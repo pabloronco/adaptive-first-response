@@ -8,6 +8,7 @@ from .graph_state import (
     NODE_FEATURE_NAMES,
     GraphStateExporter,
 )
+from .mission_loop import AdaptiveMissionLoop, LoopPhase, RoundTransition
 from .models import (
     BeliefState,
     Edge,
@@ -24,6 +25,7 @@ from .models import (
 from .planners import FrontierPlanner, Planner
 
 __all__ = [
+    "AdaptiveMissionLoop",
     "BeliefEngine",
     "BeliefState",
     "EDGE_FEATURE_NAMES",
@@ -35,6 +37,7 @@ __all__ = [
     "GraphStateExporter",
     "HiddenWorld",
     "IncidentConfig",
+    "LoopPhase",
     "MissionAction",
     "MissionAllocation",
     "NODE_FEATURE_NAMES",
@@ -42,5 +45,6 @@ __all__ = [
     "ObservationBatch",
     "Planner",
     "PublicState",
+    "RoundTransition",
     "Site",
 ]
