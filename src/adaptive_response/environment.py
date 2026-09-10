@@ -112,16 +112,8 @@ class Environment:
             generator_parameters={
                 "family": "toy_graph_cluster_m1",
                 "radius": radius,
-                "seed": int(self._public_seed(rng)),
             },
         )
-
-    @staticmethod
-    def _public_seed(rng: np.random.Generator) -> int:
-        # Persisting RNG internals would couple code to NumPy implementation.
-        # The real reset seed already lives in PublicState; this value is only a
-        # non-semantic generator trace and is intentionally not exposed.
-        return int(rng.integers(0, 2**31 - 1))
 
     @staticmethod
     def _validate_config(config: IncidentConfig) -> None:
