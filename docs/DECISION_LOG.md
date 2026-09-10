@@ -69,10 +69,10 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 
 **Decision:** Implement `FrontierPlanner` under the frozen shared planner interface `plan(graph_state, remaining_budget, constraints) -> MissionAction` with deterministic ranking:
 
-- feasible frontier nodes are considered first;
-- within that set, higher occupancy belief ranks first;
+- feasible frontier nodes rank before feasible non-frontier nodes;
+- within each group, higher occupancy belief ranks first;
 - ties are broken by higher uncertainty, then deterministic `site_id` order;
-- if no feasible frontier node exists, the same belief/uncertainty ordering is applied over all feasible nodes;
+- if budget remains after frontier selections, the planner may allocate to the best remaining feasible non-frontier nodes using the same ranking;
 - per-site effort is configurable (`effort_per_site`) so M3 does not freeze the later RL action-space granularity;
 - the planner does not use `q_by_site` in v0 and never receives hidden occupancy.
 
