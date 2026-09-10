@@ -1,0 +1,19 @@
+integration:
+  - 104729
+  - 130363
+  - 155921
+
+benchmark_id:
+  - 196613
+  - 228017
+  - 262147
+  - 299993
+
+benchmark_ood:
+  - 331999
+  - 368089
+  - 400009
+
+notes:
+  frozen_once_benchmarking_starts: true
+  rule: "All planners must be evaluated on identical incidents, budgets, and observable information."
