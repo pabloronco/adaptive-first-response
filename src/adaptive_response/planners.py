@@ -27,9 +27,9 @@ class FrontierPlanner:
     3. higher uncertainty;
     4. deterministic site_id tie-break.
 
-    If no feasible frontier node exists, the planner falls back to the same
-    belief/uncertainty ranking over all feasible nodes. This is a baseline
-    decision rule, not an ecological optimality claim.
+    If budget remains after feasible frontier nodes are ranked, the same
+    belief/uncertainty ordering is used for remaining feasible nodes. This is a
+    baseline decision rule, not an ecological optimality claim.
 
     `effort_per_site` is configurable so M3 does not freeze the later RL action
     space. The planner never sees HiddenWorld and uses only GraphState + budget.
@@ -93,19 +93,22 @@ class FrontierPlanner:
                 )
             )
 
-        frontier_candidates = [row for row in candidates if row[3]]
-        fallback_used = not frontier_candidates
-        ranked = frontier_candidates if frontier_candidates else candidates
-        ranked.sort(key=lambda row: (-row[1], -row[2], row[0]))
-
+        candidates.sort(
+            key=lambda row: (
+                -int(row[3]),
+                -row[1],
+                -row[2],
+                row[0],
+            )
+        )
         if self.max_sites is not None:
-            ranked = ranked[: self.max_sites]
+            candidates = candidates[: self.max_sites]
 
         budget_left = remaining_budget
         allocations: list[MissionAllocation] = []
         ranking_diagnostics: list[dict[str, Any]] = []
 
-        for site_id, belief, uncertainty, is_frontier in ranked:
+        for site_id, belief, uncertainty, is_frontier in candidates:
             if budget_left <= 0:
                 break
             effort = min(self.effort_per_site, budget_left)
@@ -124,12 +127,14 @@ class FrontierPlanner:
             budget_left -= effort
 
         total_cost = sum(a.effort_units for a in allocations)
+        selected_non_frontier = any(not row["frontier"] for row in ranking_diagnostics)
+        no_frontier_available = not any(row[3] for row in candidates)
         return MissionAction(
             allocations=tuple(allocations),
             total_cost=total_cost,
             diagnostics={
                 "planner": "frontier",
-                "fallback_used": fallback_used,
+                "fallback_used": selected_non_frontier or no_frontier_available,
                 "effort_per_site": self.effort_per_site,
                 "ranked_selected_sites": tuple(ranking_diagnostics),
             },
