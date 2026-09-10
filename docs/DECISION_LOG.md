@@ -35,3 +35,26 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 **Impact:** M2 can be tested without coupling inference to the toy simulator. Spatial belief coupling, real-data-informed priors, and q range calibration remain later validation/modeling work.
 
 **Owner:** Pablo + Fede, with cross-team review if these choices change `GraphState` semantics.
+
+## 2026-09-10 — GraphState exporter encoding proposal
+
+**Status:** PROPOSED CURRENT DEFAULT pending Demu interface check before merge.
+
+**Decision:** Implement the already-approved `GraphState` contract with a framework-agnostic numeric encoding:
+
+- node feature order: `belief, uncertainty, observed_effort, detections, habitat_score, access_cost, frontier`;
+- edge feature order: `distance, connectivity_weight`;
+- global feature order: `remaining_budget, round, team_capacity, global_uncertainty`;
+- `edge_index` uses shape `[2, E]` and indexes directly into `node_ids`;
+- because the current Environment treats the graph as undirected, each configured edge is exported in both directions for message passing;
+- frontier is currently a binary observable indicator: a non-positive node directly adjacent to a publicly detected/confirmed-positive node;
+- missing access cost and connectivity weight use configurable neutral defaults of `1.0`;
+- global uncertainty is the mean node Bernoulli entropy;
+- `q_by_site` remains outside learned node features and is exposed separately through planner constraints;
+- GraphState remains Python/serialization friendly; the learned planner owns conversion to PyTorch/PyG tensors.
+
+**Reason:** The Technical Specification freezes/candidates the feature families but not their tensor ordering, missing-value encoding, frontier definition, or framework representation. These choices make the producer/consumer contract executable without coupling the environment package to Demu's ML stack.
+
+**Impact:** This is interface-sensitive and must be checked by Demu before merge. If his existing prototype requires a materially different structural representation, resolve it here rather than adding adapter hacks later.
+
+**Owner:** Team; implementation by Pablo + Fede, consumer validation by Demu.
