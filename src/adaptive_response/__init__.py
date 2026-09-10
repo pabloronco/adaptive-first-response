@@ -21,6 +21,7 @@ from .models import (
     PublicState,
     Site,
 )
+from .planners import FrontierPlanner, Planner
 
 __all__ = [
     "BeliefEngine",
@@ -28,6 +29,7 @@ __all__ = [
     "EDGE_FEATURE_NAMES",
     "Edge",
     "Environment",
+    "FrontierPlanner",
     "GLOBAL_FEATURE_NAMES",
     "GraphState",
     "GraphStateExporter",
@@ -38,6 +40,7 @@ __all__ = [
     "NODE_FEATURE_NAMES",
     "Observation",
     "ObservationBatch",
+    "Planner",
     "PublicState",
     "Site",
 ]
