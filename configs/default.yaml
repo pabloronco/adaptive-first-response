@@ -1,0 +1,33 @@
+project:
+  name: adaptive-first-response
+  mode: rehearsal
+
+incident:
+  num_sites: 20
+  initial_budget: 30
+  teams: 2
+  protocol: binary_detection
+  world_model_id: null
+  seed: 20260910
+
+observation_model:
+  false_positives: false
+  q_mode: configured_or_sampled
+
+planner:
+  active: frontier
+  available:
+    - frontier
+    - information_gain
+    - rl_graph
+
+runtime:
+  deterministic_demo: true
+  offline_first: true
+  reveal_requires_state_gate: true
+
+validation:
+  training_graph_size_min: 12
+  training_graph_size_max: 24
+  demo_graph_size: 20
+  stress_graph_size: 30
