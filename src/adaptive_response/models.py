@@ -122,3 +122,23 @@ class BeliefState:
     p_by_site: dict[str, float]
     uncertainty_by_site: dict[str, float]
     observed_history: tuple[Observation, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class GraphState:
+    """Framework-agnostic observable graph payload consumed by planners.
+
+    Feature matrices are represented as immutable Python tuples so the core
+    environment does not depend on PyTorch/PyG. Learned planners may convert
+    them to tensors at their boundary.
+
+    `edge_index` uses the PyG-like shape [2, E]: row 0 contains source node
+    indices and row 1 contains destination node indices into `node_ids`.
+    """
+
+    node_ids: tuple[str, ...]
+    node_features: tuple[tuple[float, ...], ...]
+    edge_index: tuple[tuple[int, ...], tuple[int, ...]]
+    edge_features: tuple[tuple[float, ...], ...]
+    global_features: tuple[float, ...]
+    feasibility_mask: tuple[bool, ...]
