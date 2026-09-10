@@ -15,11 +15,32 @@ with the team, not unilaterally in this module.
 """
 
 from .backbone import ActorCriticOutput, GNNActorCritic
+from .eval_utils import EpisodeMetrics, RLPlannerAdapter, run_planner_episode
+from .incident_sampler import IncidentSamplerConfig, sample_incident
+from .reward import RewardConfig, round_reward, terminal_missed_extent_penalty
+from .round_policy import RoundDecision, RoundPolicy
 from .tensor_adapter import GraphTensors, graph_state_to_tensors
+from .trainer import ActorCriticTrainer, TrainerConfig, UpdateStats
+from .training_env import EpisodeRollout, run_episode
 
 __all__ = [
     "ActorCriticOutput",
+    "ActorCriticTrainer",
+    "EpisodeMetrics",
+    "EpisodeRollout",
     "GNNActorCritic",
     "GraphTensors",
+    "IncidentSamplerConfig",
+    "RLPlannerAdapter",
+    "RewardConfig",
+    "RoundDecision",
+    "RoundPolicy",
+    "TrainerConfig",
+    "UpdateStats",
     "graph_state_to_tensors",
+    "round_reward",
+    "run_episode",
+    "run_planner_episode",
+    "sample_incident",
+    "terminal_missed_extent_penalty",
 ]

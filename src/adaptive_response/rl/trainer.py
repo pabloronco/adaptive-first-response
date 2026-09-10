@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import torch
+from torch import nn
+
+from .round_policy import RoundPolicy
+from .training_env import EpisodeRollout
+
+# On-policy actor-critic (REINFORCE + learned baseline), explicitly one of
+# the two candidates the Technical Specification names ("Candidate RL:
+# PPO/actor-critic. Non e FROZEN finche piccoli benchmark non mostrano
+# stabilita"). Deliberately not full clipped-PPO: with a single gradient
+# step per freshly-collected rollout batch (no multi-epoch replay of stale
+# rollouts), PPO's importance-sampling ratio/clip has nothing to correct for,
+# so the simpler, easier-to-get-right formulation is used instead. Revisit if
+# training proves unstable.
+
+
+@dataclass(frozen=True)
+class TrainerConfig:
+    lr: float = 3e-4
+    gamma: float = 0.99
+    value_loss_coef: float = 0.5
+    entropy_coef: float = 0.01
+    max_grad_norm: float = 1.0
+
+
+@dataclass(frozen=True)
+class UpdateStats:
+    loss: float
+    policy_loss: float
+    value_loss: float
+    entropy: float
+    mean_episode_return: float
+    mean_advantage: float
+
+
+class ActorCriticTrainer:
+    def __init__(self, policy: RoundPolicy, config: TrainerConfig | None = None) -> None:
+        self.policy = policy
+        self.config = config or TrainerConfig()
+        self.optimizer = torch.optim.Adam(policy.parameters(), lr=self.config.lr)
+
+    def discounted_returns(self, rewards: list[float]) -> torch.Tensor:
+        returns: list[float] = []
+        running = 0.0
+        for reward in reversed(rewards):
+            running = reward + self.config.gamma * running
+            returns.append(running)
+        returns.reverse()
+        return torch.tensor(returns, dtype=torch.float32)
+
+    def update(self, rollouts: list[EpisodeRollout]) -> UpdateStats:
+        if not rollouts:
+            raise ValueError("update() requires at least one episode rollout.")
+
+        log_probs = torch.stack([lp for r in rollouts for lp in r.log_probs])
+        values = torch.stack([v for r in rollouts for v in r.values])
+        entropies = torch.stack([e for r in rollouts for e in r.entropies])
+        returns = torch.cat([self.discounted_returns(r.rewards) for r in rollouts])
+
+        advantages = (returns - values).detach()
+        if advantages.numel() > 1 and advantages.std() > 1e-8:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+        policy_loss = -(log_probs * advantages).mean()
+        value_loss = nn.functional.mse_loss(values, returns)
+        entropy_bonus = entropies.mean()
+        loss = (
+            policy_loss
+            + self.config.value_loss_coef * value_loss
+            - self.config.entropy_coef * entropy_bonus
+        )
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
+        self.optimizer.step()
+
+        mean_episode_return = sum(sum(r.rewards) for r in rollouts) / len(rollouts)
+
+        return UpdateStats(
+            loss=float(loss.item()),
+            policy_loss=float(policy_loss.item()),
+            value_loss=float(value_loss.item()),
+            entropy=float(entropy_bonus.item()),
+            mean_episode_return=float(mean_episode_return),
+            mean_advantage=float(advantages.mean().item()),
+        )
