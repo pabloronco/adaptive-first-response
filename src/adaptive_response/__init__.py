@@ -1,7 +1,9 @@
 """Adaptive First-Response Mission Engine core package."""
 
+from .belief import BeliefEngine
 from .environment import Environment
 from .models import (
+    BeliefState,
     Edge,
     HiddenWorld,
     IncidentConfig,
@@ -14,6 +16,8 @@ from .models import (
 )
 
 __all__ = [
+    "BeliefEngine",
+    "BeliefState",
     "Edge",
     "Environment",
     "HiddenWorld",
