@@ -109,3 +109,16 @@ class PublicState:
     protocol: str
     seed: int
     world_model_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BeliefState:
+    """Explicit probabilistic occupancy belief derived from field evidence.
+
+    `p_by_site` and `uncertainty_by_site` are observable inference outputs.
+    `observed_history` contains only observations, never latent occupancy truth.
+    """
+
+    p_by_site: dict[str, float]
+    uncertainty_by_site: dict[str, float]
+    observed_history: tuple[Observation, ...] = field(default_factory=tuple)

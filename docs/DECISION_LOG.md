@@ -17,3 +17,21 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 **Impact:** No change to the frozen evidence semantics, feature list, hidden-truth boundary, planner ladder, or product architecture. This makes the existing interface executable rather than redefining it.
 
 **Owner:** Team.
+
+## 2026-09-10 — M2 belief-engine implementation defaults
+
+**Status:** CURRENT DEFAULT for rehearsal implementation; not an ecological fact and not a new frozen project decision.
+
+**Decision:**
+
+- Priors are supplied explicitly to `BeliefEngine`; the engine does not invent occupancy priors from habitat, distance, or the synthetic hidden world.
+- A confirmed initial detection may be initialized at occupancy belief 1 under the MVP no-false-positive assumption.
+- Site-level evidence updates use the explicit effort-aware binary observation model from the Technical Specification.
+- Belief uncertainty is represented for v0 as Bernoulli entropy in bits, with range `[0, 1]`.
+- The first belief engine is site-local; it does not propagate a positive detection to connected nodes unless a later explicit spatial/world model is introduced.
+
+**Reason:** Project Freeze 3.0 freezes explicit effort/q Bayesian evidence semantics but does not freeze the numerical prior scheme or exact uncertainty scalar. Keeping priors caller-supplied prevents a design choice from being presented as ecological knowledge. Bernoulli entropy is simple, inspectable, and directly useful to the later Information Gain baseline.
+
+**Impact:** M2 can be tested without coupling inference to the toy simulator. Spatial belief coupling, real-data-informed priors, and q range calibration remain later validation/modeling work.
+
+**Owner:** Pablo + Fede, with cross-team review if these choices change `GraphState` semantics.
