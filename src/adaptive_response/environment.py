@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from copy import deepcopy
-from dataclasses import asdict
 from typing import Any
 
 import networkx as nx
@@ -20,12 +19,11 @@ from .models import (
 
 
 class Environment:
-    """Minimal rehearsal environment for M1.
+    """Minimal rehearsal environment for the adaptive first-response loop.
 
-    This implementation validates the system boundary, reset semantics, resource
-    accounting, and effort-aware imperfect detection. The hidden-world generator
-    remains a *toy model* for M1, not an ecological validity claim and not the
-    final multi-family simulator.
+    The current hidden-world generator is still a toy model, not an ecological
+    validity claim. The environment owns latent occupancy and field simulation;
+    planners receive only public/belief-derived state.
     """
 
     def __init__(self, config: IncidentConfig) -> None:
@@ -34,17 +32,20 @@ class Environment:
         self._rng: np.random.Generator | None = None
         self._hidden_world: HiddenWorld | None = None
         self._public_state: PublicState | None = None
+        self._reveal_allowed = False
 
     def reset(self, seed: int | None = None) -> PublicState:
         """Reset the incident and return only observable state.
 
         Same seed + same config produces the same hidden world. The returned
-        object never contains latent occupancy.
+        object never contains latent occupancy. Reveal is locked again on every
+        reset and can only be enabled by the orchestration/state-machine layer.
         """
 
         resolved_seed = self._config.seed if seed is None else seed
         self._rng = np.random.default_rng(resolved_seed)
         self._hidden_world = self._generate_toy_hidden_world(self._rng)
+        self._reveal_allowed = False
 
         public_sites = [self._reset_site(site) for site in self._config.sites]
         self._public_state = PublicState(
@@ -65,7 +66,7 @@ class Environment:
     ) -> tuple[ObservationBatch, bool, dict[str, Any]]:
         """Execute one field mission against the hidden incident.
 
-        CURRENT DEFAULT for M1: one effort unit consumes one budget unit. Multiple
+        CURRENT DEFAULT: one effort unit consumes one budget unit. Multiple
         allocations to the same site are aggregated before simulating a single
         field return for that site.
 
@@ -134,6 +135,25 @@ class Environment:
         assert self._public_state is not None
         return deepcopy(self._public_state)
 
+    def reveal(self) -> HiddenWorld:
+        """Return latent truth only after the state-machine layer unlocks reveal.
+
+        This method is evaluator/demo-only. Planner code must never receive the
+        Environment object or call this path.
+        """
+
+        self._require_reset()
+        if not self._reveal_allowed:
+            raise RuntimeError("Hidden truth reveal is not allowed in the current state.")
+        assert self._hidden_world is not None
+        return deepcopy(self._hidden_world)
+
+    def _allow_reveal(self) -> None:
+        """Internal hook used by the orchestration layer when the episode ends."""
+
+        self._require_reset()
+        self._reveal_allowed = True
+
     def _validate_and_aggregate_action(self, action: MissionAction) -> dict[str, int]:
         assert self._public_state is not None
 
@@ -156,7 +176,7 @@ class Environment:
         allocated_effort = sum(effort_by_site.values())
         if allocated_effort != action.total_cost:
             raise ValueError(
-                "For M1, MissionAction.total_cost must equal allocated effort units."
+                "For the current MVP, MissionAction.total_cost must equal allocated effort units."
             )
         if allocated_effort == 0:
             raise ValueError("MissionAction must allocate positive effort.")
@@ -167,7 +187,7 @@ class Environment:
     def _resolve_q(site: Site) -> float:
         if isinstance(site.q_model, bool) or not isinstance(site.q_model, (int, float)):
             raise ValueError(
-                "M1 supports scalar q_model only; richer q models remain future work."
+                "The current MVP supports scalar q_model only; richer q models remain future work."
             )
         q = float(site.q_model)
         if not 0.0 <= q <= 1.0:
@@ -192,11 +212,12 @@ class Environment:
     def _generate_toy_hidden_world(
         self, rng: np.random.Generator
     ) -> HiddenWorld:
-        """Generate a simple connected-ish latent footprint for M1 only.
+        """Generate a simple connected-ish latent footprint for the MVP kernel.
 
         MODEL ASSUMPTION: nearby nodes around the confirmed detection are more
-        likely to be occupied. This generator is deliberately temporary; M1's
-        purpose is to prove hidden/public separation and deterministic execution.
+        likely to be occupied. This generator is deliberately temporary; later
+        simulator work must replace single-generator validation with multiple
+        real-data-constrained world-model families.
         """
 
         graph = nx.Graph()
