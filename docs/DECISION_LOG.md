@@ -62,3 +62,24 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 **Impact:** M2.5 producer/consumer interface is now accepted. Demu may proceed with the GraphState-to-tensor adapter and GNN forward-pass work. Action-space, masking, reward, and evaluation semantics remain cross-team decisions.
 
 **Owner:** Team; implementation by Pablo + Fede, consumer validation by Demu.
+
+## 2026-09-10 — M3 FrontierPlanner baseline
+
+**Status:** APPROVED CURRENT DEFAULT for the interpretable frontier baseline; not an ecological optimality claim and not the competitive benchmark target.
+
+**Decision:** Implement `FrontierPlanner` under the frozen shared planner interface `plan(graph_state, remaining_budget, constraints) -> MissionAction` with deterministic ranking:
+
+- feasible frontier nodes are considered first;
+- within that set, higher occupancy belief ranks first;
+- ties are broken by higher uncertainty, then deterministic `site_id` order;
+- if no feasible frontier node exists, the same belief/uncertainty ordering is applied over all feasible nodes;
+- per-site effort is configurable (`effort_per_site`) so M3 does not freeze the later RL action-space granularity;
+- the planner does not use `q_by_site` in v0 and never receives hidden occupancy.
+
+**Validation:** Local suite reported 39/39 tests passing. The M3 sanity script showed a controlled causal replan: before new evidence `site_04` was preferred (`p=0.7000` vs `site_02=0.6000`); after `0 detections / 5 checks` at `site_04`, Bayes reduced its belief to `0.3564` and the next mission switched to `site_02`. Hidden occupancy was not used by the planner.
+
+**Known limitation:** This planner is intentionally simple and myopic. It is an interpretable fallback/integration probe, not the strong competitive baseline. Greedy Information Gain / entropy-VOI remains the main baseline for judging whether GNN+RL adds measurable value.
+
+**Impact:** M3 satisfies the roadmap gate that a heuristic planner returns valid `MissionAction`s and demonstrates `FIELD EVIDENCE -> BELIEF CHANGED -> MISSION CHANGED` through the shared interfaces. The next system milestone is the full no-RL adaptive loop (M4).
+
+**Owner:** Pablo + Fede; planner contract shared with team.
