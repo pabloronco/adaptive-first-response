@@ -1,6 +1,6 @@
 # Interfaces v0
 
-Status: M0 working contract derived from Project Freeze 3.0.
+Status: M0 working contract derived from Project Freeze 3.0 and approved team review on 2026-09-10.
 
 The goal of this document is to keep environment, belief engine, planners, evaluation, and UI compatible. It does not redefine the ecological model.
 
@@ -70,10 +70,20 @@ Optional:
 - posterior/model weights if later implemented
 
 ### GraphState
+Required structural fields:
+- `node_ids: list[str]`
 - `node_features`
+- `edge_index`
 - `edge_features`
 - `global_features`
 - `feasibility_mask`
+
+Indexing invariants:
+- `node_ids[i]` identifies the real `site_id` represented by `node_features[i]`.
+- `feasibility_mask[i]` refers to the same node/site as `node_ids[i]`.
+- `edge_index` stores graph connectivity using node indices into `node_ids`.
+- `edge_index[:, j]` (or equivalent source/destination pair representation) identifies the endpoints of `edge_features[j]`.
+- No planner may infer site identity from row position without using `node_ids`.
 
 Frozen node features to support:
 - occupancy belief
@@ -96,6 +106,28 @@ Current-default edge/global features:
 - team capacity
 - global uncertainty
 
+### Planner context / constraints
+Planner signature remains:
+
+`plan(graph_state, remaining_budget, constraints) -> MissionAction`
+
+For v0, `constraints` is the shared observable planner context and may contain operational constraints plus explicit observation-model parameters needed by non-learned planners.
+
+Required v0 field:
+- `q_by_site: dict[str, float] | equivalent indexed structure`
+
+Semantic note:
+- `q_by_site` is an observation-model parameter, not hidden ecological truth.
+- It is exposed so an Information Gain planner can evaluate future detection/non-detection likelihoods.
+- The learned planner is not required to use `q_i` as a node feature in v0.
+- If later experiments justify giving `q_i` directly to the learned policy, that is a separate cross-team interface decision and must be benchmarked rather than assumed.
+
+Other candidate constraint fields, only when needed:
+- maximum effort per site
+- unavailable/closed sites
+- team-specific feasibility
+- round-level effort limits
+
 ### MissionAction
 ```text
 allocations = [
@@ -104,10 +136,6 @@ allocations = [
 total_cost <= remaining_budget
 diagnostics = optional planner scores / confidence / rationale hooks
 ```
-
-Planner contract:
-
-`plan(graph_state, remaining_budget, constraints) -> MissionAction`
 
 The same contract applies to:
 - `FrontierPlanner`
@@ -133,6 +161,8 @@ Candidate evaluation fields:
 5. All planners consume the same observable state and return the same action schema.
 6. Same seed + same action trajectory must be reproducible in deterministic demo mode.
 7. Reveal is evaluator/demo-only and cannot be called through the planner path.
+8. `node_ids`, `node_features`, and `feasibility_mask` must remain index-aligned.
+9. `edge_index` and `edge_features` must remain edge-aligned.
 
 ## Bayesian observation semantics
 
