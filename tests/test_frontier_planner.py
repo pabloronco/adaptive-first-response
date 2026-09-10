@@ -114,6 +114,21 @@ def test_fallback_ranks_all_feasible_nodes_when_no_frontier_exists() -> None:
     assert action.diagnostics["fallback_used"] is True
 
 
+def test_remaining_budget_can_flow_to_non_frontier_after_frontier_nodes() -> None:
+    state = graph(
+        [
+            ("frontier", node_row(belief=0.3, uncertainty=0.3, frontier=1), True),
+            ("non_frontier", node_row(belief=0.9, uncertainty=0.9, frontier=0), True),
+        ]
+    )
+
+    action = FrontierPlanner().plan(state, remaining_budget=2, constraints={})
+
+    assert selected_ids(action) == ["frontier", "non_frontier"]
+    assert action.total_cost == 2
+    assert action.diagnostics["fallback_used"] is True
+
+
 def test_configurable_effort_respects_budget_and_partial_last_allocation() -> None:
     state = graph(
         [
