@@ -9,13 +9,15 @@ from adaptive_response.local_data_import import import_downloaded_targets
 
 
 def test_import_downloaded_targets_rejects_missing_exact_filename(tmp_path: Path, monkeypatch) -> None:
+    source_dir = tmp_path / "downloads"
+    source_dir.mkdir()
     target = DryadTarget("doi:test", "exact.csv", tmp_path / "out" / "exact.csv")
     monkeypatch.setattr(
         "adaptive_response.local_data_import.list_dataset_files",
         lambda doi: [{"path": "exact.csv", "size": 3}],
     )
     with pytest.raises(RuntimeError, match="Missing exact file"):
-        import_downloaded_targets(tmp_path / "downloads", (target,))
+        import_downloaded_targets(source_dir, (target,))
 
 
 def test_import_downloaded_targets_checks_size_and_copies(tmp_path: Path, monkeypatch) -> None:
