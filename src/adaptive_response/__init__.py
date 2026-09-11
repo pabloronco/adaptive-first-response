@@ -1,6 +1,7 @@
 """Adaptive First-Response Mission Engine core package."""
 
 from .belief import BeliefEngine
+from .demo_scenario import build_demo_incident, build_demo_prior
 from .environment import Environment
 from .graph_state import (
     EDGE_FEATURE_NAMES,
@@ -8,6 +9,7 @@ from .graph_state import (
     NODE_FEATURE_NAMES,
     GraphStateExporter,
 )
+from .mission_control import MissionControlSession
 from .mission_loop import AdaptiveMissionLoop, LoopPhase, RoundTransition
 from .models import (
     BeliefState,
@@ -40,6 +42,7 @@ __all__ = [
     "LoopPhase",
     "MissionAction",
     "MissionAllocation",
+    "MissionControlSession",
     "NODE_FEATURE_NAMES",
     "Observation",
     "ObservationBatch",
@@ -47,4 +50,6 @@ __all__ = [
     "PublicState",
     "RoundTransition",
     "Site",
+    "build_demo_incident",
+    "build_demo_prior",
 ]
