@@ -29,10 +29,12 @@ def test_parse_phy_ident_invalid_is_explicit() -> None:
 
 
 def test_ranked_candidates_allow_variable_reciprocity() -> None:
+    # Deliberately avoid equal-distance ties: the test is about reciprocity,
+    # not floating-point tie-breaking between geographically equidistant sites.
     sites = [
         {"site_id": "A", "latitude": 48.0, "longitude": -122.00},
         {"site_id": "B", "latitude": 48.0, "longitude": -122.01},
-        {"site_id": "C", "latitude": 48.0, "longitude": -122.02},
+        {"site_id": "C", "latitude": 48.0, "longitude": -122.03},
         {"site_id": "D", "latitude": 48.0, "longitude": -122.50},
     ]
     edges = build_ranked_candidate_edges(sites, k_max=1)
@@ -93,3 +95,22 @@ def test_annotation_keeps_mapping_context_separate_from_acceptance() -> None:
     summary = summarize_edge_candidates([result])
     assert summary["same_shorezone_area_edges"] == 1
     assert summary["mutual_knn_edges"] == 1
+
+
+def test_summary_handles_missing_mapping_metadata() -> None:
+    edges = [
+        {
+            "src": "A",
+            "dst": "B",
+            "distance_km": 3.0,
+            "mutual_knn": False,
+            "max_local_distance_ratio": 4.0,
+            "same_shorezone_region": None,
+            "same_shorezone_area": None,
+            "same_shorename": None,
+        }
+    ]
+    summary = summarize_edge_candidates(edges)
+    assert summary["candidate_edges"] == 1
+    assert summary["mapping_metadata_complete_edges"] == 0
+    assert summary["max_local_distance_ratio"] == 4.0
