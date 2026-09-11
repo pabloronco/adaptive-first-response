@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Adaptive First-Response Mission Control</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">MARINE RAPID RESPONSE / INCIDENT COMMAND</div>
+        <h1>Adaptive First-Response Mission Control</h1>
+      </div>
+      <div class="top-actions">
+        <div id="phase-pill" class="phase-pill">INITIALIZING</div>
+        <button id="reset-btn" class="btn ghost">Reset incident</button>
+      </div>
+    </header>
+
+    <section class="incident-strip">
+      <div class="incident-copy">
+        <span class="signal-dot"></span>
+        <div>
+          <div class="incident-title">NEW CONFIRMED INVASIVE-SPECIES DETECTION</div>
+          <div id="incident-subtitle" class="incident-subtitle">True extent hidden. Detection imperfect. Resources limited.</div>
+        </div>
+      </div>
+      <div class="resource-grid">
+        <div class="resource"><span>Initial detection</span><strong id="initial-detection">—</strong></div>
+        <div class="resource"><span>Budget left</span><strong id="budget-left">—</strong></div>
+        <div class="resource"><span>Field teams</span><strong id="teams">—</strong></div>
+        <div class="resource"><span>Round</span><strong id="round">—</strong></div>
+      </div>
+    </section>
+
+    <main class="workspace">
+      <section class="graph-panel panel">
+        <div class="panel-head">
+          <div>
+            <div class="section-kicker">OBSERVABLE COASTAL GRAPH</div>
+            <h2>Belief frontier</h2>
+          </div>
+          <div class="legend">
+            <span><i class="legend-dot confirmed"></i>confirmed</span>
+            <span><i class="legend-dot mission"></i>mission</span>
+            <span><i class="legend-dot surveyed"></i>surveyed</span>
+            <span><i class="legend-dot unknown"></i>unsurveyed</span>
+          </div>
+        </div>
+        <div id="mission-updated-banner" class="mission-updated hidden">MISSION UPDATED</div>
+        <div class="graph-wrap">
+          <svg id="graph" viewBox="0 0 1000 500" role="img" aria-label="Observable survey-site graph"></svg>
+          <div id="node-tooltip" class="tooltip hidden"></div>
+        </div>
+        <div class="graph-foot">
+          <span id="truth-status">HIDDEN EXTENT LOCKED</span>
+          <span>Node rings show current occupancy belief; decisions use observable state only.</span>
+        </div>
+      </section>
+
+      <aside class="side-stack">
+        <section class="panel mission-panel">
+          <div class="panel-head compact">
+            <div>
+              <div class="section-kicker">DECIDE</div>
+              <h2>Current mission</h2>
+            </div>
+            <div id="planner-chip" class="chip">—</div>
+          </div>
+          <div id="mission-body" class="mission-body empty-state">No mission planned yet.</div>
+          <div class="action-row">
+            <button id="primary-btn" class="btn primary">Plan mission</button>
+            <button id="reveal-btn" class="btn danger" disabled>Reveal true extent</button>
+          </div>
+        </section>
+
+        <section class="panel evidence-panel">
+          <div class="panel-head compact">
+            <div>
+              <div class="section-kicker">OBSERVE → INFER</div>
+              <h2>Latest field evidence</h2>
+            </div>
+          </div>
+          <div id="evidence-body" class="evidence-body empty-state">Awaiting first field return.</div>
+        </section>
+      </aside>
+    </main>
+
+    <section class="panel timeline-panel">
+      <div class="panel-head compact">
+        <div>
+          <div class="section-kicker">LEARN → REPLAN</div>
+          <h2>Incident timeline</h2>
+        </div>
+        <div class="loop-label">OBSERVE → INFER → DECIDE → SURVEY → LEARN → REPLAN</div>
+      </div>
+      <div id="timeline" class="timeline"></div>
+    </section>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
