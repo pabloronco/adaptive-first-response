@@ -61,6 +61,20 @@ class ActorCriticTrainer:
         entropies = torch.stack([e for r in rollouts for e in r.entropies])
         returns = torch.cat([self.discounted_returns(r.rewards) for r in rollouts])
 
+        # Batch-normalize returns before they become the critic's regression
+        # target. Without this, the absolute scale of RewardConfig's weights
+        # (e.g. a large missed_extent_weight relative to the per-round dense
+        # terms) directly sets the scale of value_loss: a freshly-initialized
+        # critic hasn't learned that scale yet, so value_loss can dominate the
+        # combined loss and destabilize early training (observed directly: a
+        # 4x-larger missed_extent_weight alone took loss from single digits to
+        # the hundreds in a smoke test). Normalizing decouples "how we relatively
+        # weight reward terms" from "how large gradients are," so RewardConfig
+        # tuning stays about behavior, not about re-deriving a stable lr/coef
+        # every time.
+        if returns.numel() > 1 and returns.std() > 1e-8:
+            returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+
         advantages = (returns - values).detach()
         if advantages.numel() > 1 and advantages.std() > 1e-8:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)

@@ -59,6 +59,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--entropy-coef", type=float, default=0.01)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--episodes-per-update", type=int, default=32)
+    parser.add_argument("--num-threads", type=int, default=None, help="torch.set_num_threads(); leave unset for torch's default. Set low (e.g. 2) when running several training processes concurrently on one CPU.")
+
+    parser.add_argument("--uncertainty-reduction-weight", type=float, default=2.0, help="RewardConfig alpha: per-round reward for reducing mean belief uncertainty.")
+    parser.add_argument("--detection-weight", type=float, default=1.0, help="RewardConfig beta: per-round reward per detection.")
+    parser.add_argument("--effort-cost-weight", type=float, default=0.02, help="RewardConfig lambda: per-round cost per effort unit spent.")
+    parser.add_argument("--missed-extent-weight", type=float, default=1.0, help="RewardConfig eta: terminal penalty per truly-occupied site never detected.")
 
     parser.add_argument("--min-sites", type=int, default=12)
     parser.add_argument("--max-sites", type=int, default=24)
@@ -121,6 +127,8 @@ def run_eval(policy: RoundPolicy, eval_incidents: list, eval_seeds: list[int]) -
 
 def main() -> None:
     args = parse_args()
+    if args.num_threads is not None:
+        torch.set_num_threads(args.num_threads)
     run_dir = make_run_dir(args.log_dir, args.run_name)
     (run_dir / "config.json").write_text(json.dumps(vars(args), indent=2))
     print(f"Run directory: {run_dir}")
@@ -150,7 +158,12 @@ def main() -> None:
             max_grad_norm=args.max_grad_norm,
         ),
     )
-    reward_config = RewardConfig()
+    reward_config = RewardConfig(
+        uncertainty_reduction_weight=args.uncertainty_reduction_weight,
+        detection_weight=args.detection_weight,
+        effort_cost_weight=args.effort_cost_weight,
+        missed_extent_weight=args.missed_extent_weight,
+    )
 
     metrics_path = run_dir / "metrics.csv"
     eval_path = run_dir / "eval.csv"
