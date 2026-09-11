@@ -175,3 +175,26 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 **Decision:** No mid-run changes (same reasoning as before - don't add more moving pieces to an already-confounded comparison). Let both finish their 7.5h. Flag for the actual Checkpoint C training run (once Pablo/Fede review this and it becomes real, not disposable): reward-scale changes should probably be accompanied by variance-reduction measures (more episodes per update, and/or an entropy-coefficient or reward-scale schedule) rather than assuming more wall-clock time alone will finish the convergence a raw weight bump stalls.
 
 **Owner:** Demu (unilateral, PROPOSED).
+
+## 2026-09-11 — Final wrap-up: v0 vs v1 vs v2, all three runs complete
+
+**Status:** PROPOSED, ready for Pablo/Fede review. This closes out the three-run comparison; it does not freeze anything.
+
+**All three finished their planned 7.5h**: v0 5909 updates (retired earlier, see above), v1 11299 updates, v2 12023 updates. All evaluated throughout on the same fixed 20-incident held-out set.
+
+**Final state:**
+- **v1** (`missed_extent_weight=8.0`, `gamma=0.99`, seed=1): last 20 eval points range 0.155-0.218, *every single one* below Frontier's constant 0.2543. Best 0.1517 (update 8700). No degradation across the whole second half of training - the most stable of the three runs by a clear margin.
+- **v2** (`missed_extent_weight=8.0`, `gamma=0.995`, seed=2): mostly matched v1 in its final stretch (19 of its last 20 points also below Frontier, best 0.1488 at update 6500, comparable or slightly better than v1's best), but its *very last* checkpoint spiked to 0.2795 - worse than Frontier - and it separately passed through a multi-checkpoint bad patch mid-training (updates ~4900-5600, documented in the previous entry). v1 never did either.
+- **v0** (original `missed_extent_weight=1.0`, `gamma=0.99`, seed=0): never beat Frontier in 5909 updates; regressed rather than improved in its final stretch. Confirms the reward reweighting, not just "more training," is what changed the outcome.
+
+**Verdict:** the `missed_extent_weight` reweighting (1.0 -> 8.0) is a real, load-bearing fix - two independent seeds with that change both decisively and durably beat FrontierPlanner on this held-out set, where the unweighted version never did. Between v1 and v2, **v1's configuration (`gamma=0.99`, i.e. only the reward change, not also the discount change) looks like the more reliable of the two** - fewer moving parts, zero excursions above Frontier in its back half versus v2's two. This is *not* a confirmed causal claim about gamma specifically: v1 and v2 also differ by seed, and this run never included a same-seed ablation to isolate it. Final checkpoints (`final.pt` in each run directory) are saved for either variant if useful, but are PROPOSED-design artifacts, not validated policies - treat as disposable/re-trainable, not as something to demo or benchmark-report without review.
+
+**What this does and does not show, restated once more for anyone reading only this final entry**: shows a real, reproducible-across-seed improvement over a simple frontier heuristic, on one synthetic toy-generator family, on one fixed 20-incident eval set, using a reward/action-space design nobody but Demu has reviewed. Does not show anything about Information Gain (doesn't exist yet), other world-model families (don't exist yet), or real-world validity.
+
+**Recommended next steps, in order:**
+1. Pablo/Fede review this whole PROPOSED thread (action space, reward, and now these results) and either approve, adjust, or reject before any of it is treated as CURRENT DEFAULT.
+2. If approved-with-changes or approved-as-is: re-run with the entropy-coefficient decay fix now available (`--entropy-coef-final`/`--entropy-coef-decay-updates`, added 2026-09-11, not used in this comparison) to address the entropy-plateau finding, and this time control for seed (same seed across variants, only vary the hyperparameter under test) to properly separate reward-weight effects from initialization luck.
+3. Once Information Gain exists, re-benchmark against that, not just Frontier - beating Frontier is necessary but was never the actual bar in the original handoff.
+4. Once multiple world-model families exist, re-test there before claiming anything about robustness (Checkpoint D).
+
+**Owner:** Demu (unilateral, PROPOSED); awaiting Pablo + Fede review.
