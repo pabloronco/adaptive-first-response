@@ -8,6 +8,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -79,13 +80,7 @@ def _embedded_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _resource_id(item: dict[str, Any], resource: str) -> int:
-    """Extract a Dryad numeric id from either a legacy `id` or HAL link.
-
-    Current public Dryad responses expose version/file identifiers primarily in
-    `_links.self.href` (for example `/api/v2/versions/355108`) rather than as a
-    top-level `id`. Keeping both paths makes the fetcher tolerant of either API
-    representation without guessing from filenames.
-    """
+    """Extract a Dryad numeric id from either a legacy `id` or HAL link."""
     direct = item.get("id")
     try:
         if direct is not None:
@@ -178,8 +173,32 @@ def _metadata_download_url(metadata: dict[str, Any]) -> str | None:
     return urllib.parse.urljoin(DRYAD_ORIGIN, href)
 
 
+def _dataset_download_url(doi: str) -> str:
+    encoded = urllib.parse.quote(doi, safe="")
+    return f"{DRYAD_API_BASE}/datasets/{encoded}/download"
+
+
+def _download_url(url: str, destination: Path, *, timeout: int = 300) -> None:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "application/zip,application/octet-stream,*/*",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response, destination.open("wb") as out:
+            shutil.copyfileobj(response, out)
+    except urllib.error.HTTPError as exc:
+        destination.unlink(missing_ok=True)
+        raise RuntimeError(f"{url} -> HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        destination.unlink(missing_ok=True)
+        raise RuntimeError(f"{url} -> {exc.reason}") from exc
+
+
 def _download_file(metadata: dict[str, Any], file_id: int, destination: Path) -> None:
-    """Download a public Dryad file, trying the advertised link then public streams."""
+    """Fallback: try individual-file endpoints when the dataset archive is unavailable."""
     urls: list[str] = []
     advertised = _metadata_download_url(metadata)
     if advertised:
@@ -188,19 +207,46 @@ def _download_file(metadata: dict[str, Any], file_id: int, destination: Path) ->
 
     errors: list[str] = []
     for url in dict.fromkeys(urls):
-        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
-            with urllib.request.urlopen(request, timeout=120) as response, destination.open("wb") as out:
-                shutil.copyfileobj(response, out)
+            _download_url(url, destination, timeout=120)
             return
-        except urllib.error.HTTPError as exc:
-            errors.append(f"{url} -> HTTP {exc.code}")
-            destination.unlink(missing_ok=True)
-        except urllib.error.URLError as exc:
-            errors.append(f"{url} -> {exc.reason}")
+        except RuntimeError as exc:
+            errors.append(str(exc))
             destination.unlink(missing_ok=True)
 
     raise RuntimeError("Unable to download Dryad file. " + "; ".join(errors))
+
+
+def _download_dataset_archive(doi: str, destination: Path) -> None:
+    """Download Dryad's documented public latest-version dataset ZIP endpoint."""
+    url = _dataset_download_url(doi)
+    _download_url(url, destination, timeout=600)
+    if not zipfile.is_zipfile(destination):
+        destination.unlink(missing_ok=True)
+        raise RuntimeError(f"Dryad dataset download for {doi} did not return a ZIP archive")
+
+
+def _extract_exact_from_archive(archive_path: Path, filename: str, destination: Path) -> None:
+    """Extract exactly one member matching the requested basename, never a fuzzy match."""
+    with zipfile.ZipFile(archive_path) as archive:
+        matches = [name for name in archive.namelist() if Path(name).name == filename]
+        if len(matches) != 1:
+            available = sorted(Path(name).name for name in archive.namelist() if not name.endswith("/"))
+            raise RuntimeError(
+                f"Expected exactly one archive member named {filename!r}; found {len(matches)}. "
+                f"Available files: {available}"
+            )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(matches[0]) as source, destination.open("wb") as out:
+            shutil.copyfileobj(source, out)
+
+
+def _expected_digest(metadata: dict[str, Any]) -> str | None:
+    digest = metadata.get("digest")
+    digest_type = str(metadata.get("digestType", "")).lower().replace("_", "-")
+    if isinstance(digest, str) and digest and digest_type in {"sha-256", "sha256"}:
+        return digest.lower()
+    return None
 
 
 def fetch_targets(
@@ -208,57 +254,96 @@ def fetch_targets(
     *,
     overwrite: bool = False,
 ) -> list[dict[str, Any]]:
+    target_list = list(targets)
     by_doi: dict[str, list[dict[str, Any]]] = {}
     manifest: list[dict[str, Any]] = []
 
-    for target in targets:
-        target.destination.parent.mkdir(parents=True, exist_ok=True)
-        if target.destination.exists() and not overwrite:
+    with tempfile.TemporaryDirectory(prefix="r0_dryad_archives_") as archive_dir_raw:
+        archive_dir = Path(archive_dir_raw)
+        archive_paths: dict[str, Path | None] = {}
+        archive_errors: dict[str, str] = {}
+
+        for target in target_list:
+            target.destination.parent.mkdir(parents=True, exist_ok=True)
+            if target.destination.exists() and not overwrite:
+                manifest.append(
+                    {
+                        "doi": target.doi,
+                        "filename": target.filename,
+                        "destination": str(target.destination),
+                        "status": "already_present",
+                        "size": target.destination.stat().st_size,
+                        "sha256": _sha256(target.destination),
+                    }
+                )
+                continue
+
+            files = by_doi.setdefault(target.doi, list_dataset_files(target.doi))
+            metadata = select_file_metadata(files, target.filename)
+            try:
+                file_id = _resource_id(metadata, "file")
+            except RuntimeError as exc:
+                raise RuntimeError(f"Dryad metadata for {target.filename} has no usable file id/link") from exc
+
+            expected_size_raw = metadata.get("size")
+            try:
+                expected_size = int(expected_size_raw) if expected_size_raw is not None else None
+            except (TypeError, ValueError):
+                expected_size = None
+            expected_digest = _expected_digest(metadata)
+
+            with tempfile.TemporaryDirectory(prefix="r0_dryad_file_") as temp_dir:
+                temp_path = Path(temp_dir) / target.filename
+                method = "dataset_archive"
+
+                if target.doi not in archive_paths:
+                    archive_path = archive_dir / f"dataset_{len(archive_paths):02d}.zip"
+                    try:
+                        _download_dataset_archive(target.doi, archive_path)
+                        archive_paths[target.doi] = archive_path
+                    except RuntimeError as exc:
+                        archive_paths[target.doi] = None
+                        archive_errors[target.doi] = str(exc)
+
+                archive_path = archive_paths[target.doi]
+                if archive_path is not None:
+                    _extract_exact_from_archive(archive_path, target.filename, temp_path)
+                else:
+                    method = "individual_file_fallback"
+                    try:
+                        _download_file(metadata, file_id, temp_path)
+                    except RuntimeError as exc:
+                        archive_error = archive_errors.get(target.doi, "unknown archive error")
+                        raise RuntimeError(
+                            f"Dryad download failed for {target.filename}. "
+                            f"Dataset archive attempt: {archive_error}. "
+                            f"Individual-file attempt: {exc}"
+                        ) from exc
+
+                actual_size = temp_path.stat().st_size
+                if expected_size is not None and actual_size != expected_size:
+                    raise RuntimeError(
+                        f"Size mismatch for {target.filename}: expected {expected_size}, got {actual_size}"
+                    )
+                actual_digest = _sha256(temp_path)
+                if expected_digest is not None and actual_digest.lower() != expected_digest:
+                    raise RuntimeError(
+                        f"SHA-256 mismatch for {target.filename}: expected {expected_digest}, got {actual_digest}"
+                    )
+                shutil.move(str(temp_path), str(target.destination))
+
             manifest.append(
                 {
                     "doi": target.doi,
                     "filename": target.filename,
+                    "dryad_file_id": file_id,
                     "destination": str(target.destination),
-                    "status": "already_present",
+                    "status": "downloaded",
+                    "download_method": method,
                     "size": target.destination.stat().st_size,
                     "sha256": _sha256(target.destination),
+                    "dryad_sha256": expected_digest,
                 }
             )
-            continue
-
-        files = by_doi.setdefault(target.doi, list_dataset_files(target.doi))
-        metadata = select_file_metadata(files, target.filename)
-        try:
-            file_id = _resource_id(metadata, "file")
-        except RuntimeError as exc:
-            raise RuntimeError(f"Dryad metadata for {target.filename} has no usable file id/link") from exc
-
-        expected_size_raw = metadata.get("size")
-        try:
-            expected_size = int(expected_size_raw) if expected_size_raw is not None else None
-        except (TypeError, ValueError):
-            expected_size = None
-
-        with tempfile.TemporaryDirectory(prefix="r0_dryad_") as temp_dir:
-            temp_path = Path(temp_dir) / target.filename
-            _download_file(metadata, file_id, temp_path)
-            actual_size = temp_path.stat().st_size
-            if expected_size is not None and actual_size != expected_size:
-                raise RuntimeError(
-                    f"Size mismatch for {target.filename}: expected {expected_size}, got {actual_size}"
-                )
-            shutil.move(str(temp_path), str(target.destination))
-
-        manifest.append(
-            {
-                "doi": target.doi,
-                "filename": target.filename,
-                "dryad_file_id": file_id,
-                "destination": str(target.destination),
-                "status": "downloaded",
-                "size": target.destination.stat().st_size,
-                "sha256": _sha256(target.destination),
-            }
-        )
 
     return manifest
