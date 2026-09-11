@@ -157,3 +157,21 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 **Decision:** Let v1 and v2 keep running to use their full compute budget rather than stopping early on a promising-but-partial trend; v0 is allowed to finish and then retired (it has clearly plateaued/regressed, not worth further wall-clock). No further reward/hyperparameter changes made mid-run — comparing more variants now would re-introduce the "changed too many things at once" problem this entry is trying to avoid.
 
 **Owner:** Demu (unilateral, PROPOSED); flagging to Pablo + Fede that the Checkpoint B reward design looks directionally validated on this narrow test, pending their review and, eventually, benchmarking against Information Gain rather than only Frontier.
+
+## 2026-09-11 — Follow-up read at ~5700-6000 updates: plateau, not continued improvement, and v2 instability
+
+**Status:** Still PROPOSED/unreviewed; refines the entry above rather than replacing it.
+
+**What changed since the last read:** v1/v2 ran ~3 more hours (v1: update 5600, v2: update 6000; both roughly half their 7.5h budget).
+
+**v1**: stabilized into a consistent 0.156-0.199 missed_fraction band, every single one of the last 15 eval points below Frontier's 0.254. Trend correlation over the last 20 points is ~0.05 (flat) - it has stopped improving, but it has not degraded either.
+
+**v2**: noticeably less stable. In the update-4900-5600 window it repeatedly matched or exceeded Frontier (0.299, 0.254, 0.294, 0.256), before recovering to 0.18-0.21 in its last few evals. Best single point (0.156 at update 4700) is comparable to v1's, but the path there is far noisier.
+
+**Root cause, from `metrics.csv`**: entropy for both v1 and v2 plateaued around 8-13 nats by roughly update 1500-2000 and never continued collapsing toward a confident policy the way v0's did (v0 reached ~1.5-2 by its end). Working hypothesis: multiplying `missed_extent_weight` by 8x also multiplies the *variance* of the terminal reward term - the underlying detection outcome is still a stochastic Bernoulli draw (`q` in the 0.15-0.45 range), so a bigger weight on a noisy binary-ish outcome makes the policy-gradient signal noisier, which plausibly stalls the natural entropy reduction rather than only reweighting it. Not confirmed, just the most consistent explanation for what's observed.
+
+**Interpretation:** the win over Frontier established in the previous entry holds up over 3 more hours (v1 especially - it did not regress into a v0-style late decline), but neither variant is still improving; both found a plateau early and are oscillating around it. v2's extra instability adds more (still seed-confounded) weight to "the gamma change is not obviously helping, and may hurt" from the previous entry.
+
+**Decision:** No mid-run changes (same reasoning as before - don't add more moving pieces to an already-confounded comparison). Let both finish their 7.5h. Flag for the actual Checkpoint C training run (once Pablo/Fede review this and it becomes real, not disposable): reward-scale changes should probably be accompanied by variance-reduction measures (more episodes per update, and/or an entropy-coefficient or reward-scale schedule) rather than assuming more wall-clock time alone will finish the convergence a raw weight bump stalls.
+
+**Owner:** Demu (unilateral, PROPOSED).
