@@ -4,10 +4,9 @@ from dataclasses import dataclass, field
 
 import torch
 
-from ..belief import BeliefEngine
 from ..environment import Environment
-from ..graph_state import GraphStateExporter
-from ..models import HiddenWorld, IncidentConfig
+from ..mission_loop import AdaptiveMissionLoop
+from ..models import IncidentConfig, MissionAction
 from .reward import RewardConfig, round_reward, terminal_missed_extent_penalty
 from .round_policy import RoundPolicy
 
@@ -28,6 +27,33 @@ class EpisodeRollout:
     occupied_sites_total: int = 0
 
 
+class _StashingPlanner:
+    """Adapts `RoundPolicy` to the `Planner` protocol for `AdaptiveMissionLoop`.
+
+    The loop's `plan_next()` only returns a `MissionAction` - the richer
+    `RoundDecision` (log_prob/value/entropy) needed for the policy gradient
+    update has nowhere to travel through that interface, so this adapter
+    stashes the last decision on itself for the caller to read back. The
+    caller MUST read `last_decision` immediately after its own `plan_next()`
+    call and before calling `execute_pending()`: that method internally
+    triggers another `plan_next()` for the following round as soon as the
+    current one isn't done, which would silently overwrite `last_decision`
+    with the wrong round's decision otherwise.
+    """
+
+    def __init__(self, policy: RoundPolicy, *, deterministic: bool) -> None:
+        self._policy = policy
+        self._deterministic = deterministic
+        self.last_decision = None
+
+    def plan(self, graph_state, remaining_budget, constraints) -> MissionAction:
+        del constraints
+        self.last_decision = self._policy.act(
+            graph_state, remaining_budget, deterministic=self._deterministic
+        )
+        return self.last_decision.mission
+
+
 def run_episode(
     policy: RoundPolicy,
     incident_config: IncidentConfig,
@@ -38,36 +64,39 @@ def run_episode(
 ) -> EpisodeRollout:
     """Run one full incident from reset to budget exhaustion under `policy`.
 
-    Reads `Environment`'s private hidden-world attribute ONLY to compute the
-    training-time terminal missed-extent term (see reward.py's module
-    docstring on the HiddenWorld privileged-access invariant). This never
-    touches the policy's inputs: `policy.act` only ever receives a
-    `GraphState`. TODO once M4 (`m4/end-to-end-loop`) merges to main and
-    exposes `Environment.reveal()`: switch this to the public API instead of
-    the private attribute.
+    Uses the shared `AdaptiveMissionLoop` (M4) rather than driving `Environment`
+    directly, so this gets the real plan -> execute -> Bayes -> replan cycle
+    and the proper reveal gate for free instead of re-deriving them. `reveal()`
+    is only reachable after the loop's own state machine reaches COMPLETE, and
+    only this training/evaluator code calls it - `policy.act` only ever
+    receives a `GraphState`, never the loop or the environment.
     """
 
     cfg = reward_config or RewardConfig()
     env = Environment(incident_config)
-    public = env.reset(seed=seed)
-    prior = {site.id: 0.5 for site in public.sites}
-    belief = BeliefEngine.initialize(prior, confirmed_sites={public.initial_detection})
-    exporter = GraphStateExporter()
+    prior = {site.id: 0.5 for site in incident_config.sites}
+    adapter = _StashingPlanner(policy, deterministic=deterministic)
+    loop = AdaptiveMissionLoop(env, adapter, prior_by_site=prior)
+    loop.reset(seed=seed)
 
     rollout = EpisodeRollout()
 
-    while public.remaining_budget > 0:
-        graph_state = exporter.export(public, belief)
-        decision = policy.act(graph_state, public.remaining_budget, deterministic=deterministic)
-
-        observations, done, metrics = env.step(decision.mission)
-        public_after = env.current_public_state
-        q_by_site = exporter.planner_constraints(public_after)["q_by_site"]
-        belief_after = BeliefEngine.update(belief, observations, q_by_site)
+    while True:
+        # IMPORTANT: capture the decision right after plan_next(), not after
+        # execute_pending()/run_round(). execute_pending() internally calls
+        # plan_next() again for the *next* round as soon as the current one
+        # isn't done (see AdaptiveMissionLoop.execute_pending), which would
+        # silently overwrite adapter.last_decision with the wrong round's
+        # decision before we get a chance to read it back - misattributing
+        # this round's reward to the next round's log_prob/value/entropy.
+        loop.plan_next()
+        decision = adapter.last_decision
+        transition = loop.execute_pending()
+        metrics = transition.simulator_metrics
 
         reward = round_reward(
-            belief_before=belief,
-            belief_after=belief_after,
+            belief_before=transition.belief_before,
+            belief_after=transition.belief_after,
             detections_this_round=int(metrics["detections"]),
             effort_spent_this_round=int(metrics["effort_spent"]),
             config=cfg,
@@ -81,21 +110,26 @@ def run_episode(
         rollout.detections_found += int(metrics["detections"])
         rollout.effort_spent += int(metrics["effort_spent"])
 
-        public = public_after
-        belief = belief_after
-
-        if done:
-            hidden_world: HiddenWorld = env._hidden_world  # noqa: SLF001 (see docstring)
+        if transition.done:
+            hidden_world = loop.reveal()
             terminal_penalty = terminal_missed_extent_penalty(
-                public_state=public, hidden_world=hidden_world, config=cfg
+                public_state=transition.public_state_after,
+                hidden_world=hidden_world,
+                config=cfg,
             )
             reward += terminal_penalty
             rollout.occupied_sites_total = sum(hidden_world.occupied_by_site.values())
             rollout.occupied_sites_missed = sum(
                 1
-                for site in public.sites
+                for site in transition.public_state_after.sites
                 if hidden_world.occupied_by_site.get(site.id, False) and site.detections == 0
             )
+            rollout.rewards.append(reward)
+            # Returning here (rather than looping once more to let a
+            # `while phase is not COMPLETE` condition catch it) matters:
+            # reveal() just moved the loop's phase from COMPLETE to REVEALED,
+            # so that condition would misfire into one extra invalid round.
+            break
 
         rollout.rewards.append(reward)
 

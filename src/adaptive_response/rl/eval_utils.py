@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..belief import BeliefEngine
 from ..environment import Environment
-from ..graph_state import GraphStateExporter
-from ..models import HiddenWorld, IncidentConfig, MissionAction
+from ..mission_loop import AdaptiveMissionLoop
+from ..models import IncidentConfig, MissionAction
 from ..planners import Planner
 from .round_policy import RoundPolicy
 
@@ -45,38 +44,38 @@ def run_planner_episode(
 ) -> EpisodeMetrics:
     """Run one incident under any `Planner` and report task metrics only.
 
-    Reads Environment's private hidden-world attribute for the missed-extent
-    metric; see training_env.py's docstring for why that is legitimate
-    evaluator-only access and the TODO to switch to Environment.reveal() once
-    M4 merges.
+    Uses the shared `AdaptiveMissionLoop` (M4) so evaluation goes through the
+    same real orchestration as the product/UI side, including the proper
+    `reveal()` gate, instead of re-deriving the plan/execute/Bayes cycle here.
+    Safe to use `run_round()` directly (unlike training_env.py's run_episode):
+    this function never needs to read anything back from `planner` itself, so
+    `execute_pending()`'s internal next-round lookahead planning call is
+    harmless here.
     """
 
     env = Environment(incident_config)
-    public = env.reset(seed=seed)
-    prior = {site.id: 0.5 for site in public.sites}
-    belief = BeliefEngine.initialize(prior, confirmed_sites={public.initial_detection})
-    exporter = GraphStateExporter()
+    prior = {site.id: 0.5 for site in incident_config.sites}
+    loop = AdaptiveMissionLoop(env, planner, prior_by_site=prior)
+    loop.reset(seed=seed)
 
     num_rounds = 0
     detections_found = 0
     effort_spent = 0
 
-    while public.remaining_budget > 0:
-        graph_state = exporter.export(public, belief)
-        constraints = exporter.planner_constraints(public)
-        mission = planner.plan(graph_state, public.remaining_budget, constraints)
-
-        observations, done, metrics = env.step(mission)
-        public = env.current_public_state
-        q_by_site = exporter.planner_constraints(public)["q_by_site"]
-        belief = BeliefEngine.update(belief, observations, q_by_site)
-
+    while True:
+        transition = loop.run_round()
+        metrics = transition.simulator_metrics
         num_rounds += 1
         detections_found += int(metrics["detections"])
         effort_spent += int(metrics["effort_spent"])
 
-        if done:
-            hidden_world: HiddenWorld = env._hidden_world  # noqa: SLF001
+        if transition.done:
+            # Returning immediately here (rather than looping once more to let
+            # a `while phase is not COMPLETE` condition catch it) matters:
+            # reveal() moves the loop's phase from COMPLETE to REVEALED, so
+            # that condition would misfire into one extra invalid round.
+            hidden_world = loop.reveal()
+            public = transition.public_state_after
             occupied_total = sum(hidden_world.occupied_by_site.values())
             missed = sum(
                 1
@@ -90,5 +89,3 @@ def run_planner_episode(
                 occupied_sites_total=occupied_total,
                 occupied_sites_missed=missed,
             )
-
-    raise RuntimeError("Episode loop exited without reaching done=True.")
