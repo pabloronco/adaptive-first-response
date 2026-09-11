@@ -111,6 +111,11 @@ def test_summary_handles_missing_mapping_metadata() -> None:
         }
     ]
     summary = summarize_edge_candidates(edges)
-    assert summary["candidate_edges"] == 1
-    assert summary["mapping_metadata_complete_edges"] == 0
-    assert summary["max_local_distance_ratio"] == 4.0
+
+    # Missing optional ShoreZone mapping metadata must not crash the summary
+    # and must not be silently counted as supporting connectivity.
+    assert summary["edges"] == 1
+    assert summary["same_shorezone_region_edges"] == 0
+    assert summary["same_shorezone_area_edges"] == 0
+    assert summary["same_shorename_edges"] == 0
+    assert summary["local_distance_ratio_max"] == 4.0
