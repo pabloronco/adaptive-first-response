@@ -5,7 +5,9 @@ from typing import Any
 
 from .demo_scenario import (
     DEMO_BUDGET,
+    DEMO_SCENARIO_NAME,
     DEMO_SEED,
+    DEMO_SITE_META,
     build_demo_incident,
     build_demo_prior,
 )
@@ -145,8 +147,11 @@ class MissionControlSession:
         for i, site_id in enumerate(graph.node_ids):
             site = site_by_id[site_id]
             row = graph.node_features[i]
+            meta = DEMO_SITE_META.get(site_id, {})
             node = {
                 "id": site_id,
+                "label": meta.get("label", site_id),
+                "zone": meta.get("zone", "coast"),
                 "x": site.x,
                 "y": site.y,
                 "belief": belief.p_by_site[site_id],
@@ -171,10 +176,19 @@ class MissionControlSession:
                 self._last_transition.mission
             ) != self._allocation_signature(self._last_transition.next_mission)
 
+        replan = None
+        if last_round is not None:
+            replan = {
+                "changed": mission_changed,
+                "from": last_round["previous_mission"],
+                "to": last_round["next_mission"],
+            }
+
         return {
             "phase": loop.phase.value,
             "incident": {
                 "label": "Marine invasive species — confirmed first detection",
+                "scenario_name": DEMO_SCENARIO_NAME,
                 "initial_detection": public.initial_detection,
                 "seed": public.seed,
                 "world_model_id": public.world_model_id,
@@ -189,6 +203,7 @@ class MissionControlSession:
             },
             "mission": self._serialize_mission(self._mission),
             "mission_changed": mission_changed,
+            "replan": replan,
             "last_round": last_round,
             "nodes": nodes,
             "edges": [asdict(edge) for edge in public.edges],
