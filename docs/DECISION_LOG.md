@@ -133,3 +133,27 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 **Impact:** A training run was launched in the background (see terminal transcript / `runs/<run-name>_<timestamp>/` for the specific run). Nothing here changes `GraphState`, `MissionAction`, `Planner`, or any file outside `src/adaptive_response/rl/` and `scripts/`. If Pablo/Fede reject any part of this design at review, the affected run(s) should be treated as disposable — checkpoints are cheap to regenerate once the design is corrected, per the project's own "don't count reward-curve-only progress" discipline.
 
 **Owner:** Demu (unilateral, PROPOSED); requires Pablo + Fede review before being treated as CURRENT DEFAULT or FROZEN.
+
+## 2026-09-11 — First empirical read: reward reweighting, three parallel runs
+
+**Status:** Still PROPOSED/unreviewed; this is a data point for that review, not a new decision.
+
+**What was compared**, all on the same fixed 20-incident held-out eval set (`eval_rng` seeded independently of `--seed`), same code otherwise:
+- **v0** `checkpointB_v0_unattended` (seed=0): original weights (`missed_extent_weight=1.0`, `gamma=0.99`). Ran ~7.5h, 5800+ updates.
+- **v1** `checkpointB_v1_reward_reweight` (seed=1): `missed_extent_weight=8.0`, `gamma=0.99` (isolates the reward-weight change).
+- **v2** `checkpointB_v2_reward_reweight_lessdiscount` (seed=2): `missed_extent_weight=8.0`, `gamma=0.995`.
+
+(Return normalization, see the entry above this one, was required first: raising `missed_extent_weight` alone without it pushed the loss into the hundreds in a smoke test.)
+
+**Result at v0's end (~5800 updates) vs v1/v2 at ~2500-2600 updates each:**
+- v0 never beat FrontierPlanner's held-out missed_fraction (0.2543, constant): best 0.390 at update 3600, and its last-20-point trend actually reversed (correlation +0.65 — got noisier/worse late, not better) despite entropy having collapsed to ~1.5-2.
+- v1: missed_fraction 0.209 (first 10 evals avg) -> 0.183 (last 10) -> 0.155 (latest, also its best), consistently *below* Frontier's 0.254 essentially throughout, trend correlation -0.59 (still improving, not flat).
+- v2: 0.251 -> 0.199 -> 0.184 latest (best 0.178), also consistently below Frontier once past its first few evals, trend correlation -0.53.
+
+**Why this is more than "one lucky number"**: two independent seeds (v1, v2) sharing only the `missed_extent_weight` change both show the same qualitative shift - consistent, still-improving outperformance of Frontier on the fixed eval set - while v0 (same seed family, old weight) never got there in more total updates. If this were purely seed-init luck rather than the reward change, both would not be expected to move the same way. It does NOT yet separate "the weight change" from "the gamma change" (v1 vs v2 differ on both seed and gamma), and it does not yet say whether v1's slight edge over v2 is the smaller discounting or seed luck.
+
+**What this does NOT show** (per the project's own claim discipline): validity beyond this one M1 toy-generator family and this one fixed 20-incident eval set; that RL beats Information Gain (doesn't exist yet); that this generalizes to different graph-size ranges, budgets, or a real simulator family. It is a same-generator, same-eval-set result on early-in-training checkpoints (v1/v2 are ~20% through their planned 7.5h budget), not a benchmark-grade claim.
+
+**Decision:** Let v1 and v2 keep running to use their full compute budget rather than stopping early on a promising-but-partial trend; v0 is allowed to finish and then retired (it has clearly plateaued/regressed, not worth further wall-clock). No further reward/hyperparameter changes made mid-run — comparing more variants now would re-introduce the "changed too many things at once" problem this entry is trying to avoid.
+
+**Owner:** Demu (unilateral, PROPOSED); flagging to Pablo + Fede that the Checkpoint B reward design looks directionally validated on this narrow test, pending their review and, eventually, benchmarking against Information Gain rather than only Frontier.
