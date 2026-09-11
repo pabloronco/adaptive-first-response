@@ -225,3 +225,17 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 4. Once multiple world-model families exist, re-test there before claiming anything about robustness (Checkpoint D).
 
 **Owner:** Demu (unilateral, PROPOSED); awaiting Pablo + Fede review.
+
+## 2026-09-11 — RL training/eval now route through AdaptiveMissionLoop (M4)
+
+**Status:** Implementation cleanup, not a design decision. No action-space/reward semantics changed.
+
+**Decision:** Merged `main` (which now has M4's `AdaptiveMissionLoop`/`Environment.reveal()`) into `demu/gnn-rl-backbone`. Rewrote `training_env.run_episode()` and `eval_utils.run_planner_episode()` to drive the shared `AdaptiveMissionLoop` instead of re-implementing plan/execute/Bayes/replan by hand against `Environment` directly. This retires the private `Environment._hidden_world` access flagged as a temporary workaround in every prior entry in this thread - `HiddenWorld` now only ever reaches training/eval code through the real `loop.reveal()` gate.
+
+**Bug caught while doing this (not just a style change):** `AdaptiveMissionLoop.execute_pending()` internally calls `plan_next()` again for the *next* round as soon as the current one isn't done, to have a mission ready for the following `run_round()`. A naive "call `run_round()`, then read back what the planner just decided" pattern - the obvious way to recover the log_prob/value/entropy a training loop needs, since `run_round()` only returns a `MissionAction` - would silently misattribute: the planner gets invoked a second time for the next round *inside* that same call, overwriting whatever it stashed for the round that actually just executed. Fixed by calling `plan_next()` explicitly and reading the stashed decision back immediately, before calling `execute_pending()`. A second, related bug: `reveal()` moves the loop's phase from `COMPLETE` to `REVEALED`, so a `while phase is not COMPLETE` loop condition fires one extra (invalid) round after the terminal one; fixed with an explicit `break`/`return` on the terminal transition instead of trusting the loop condition.
+
+**Validation:** Neither bug was caught by the existing test suite passing - both are logic errors that produce a *plausible-looking* wrong answer (misattributed rewards, one bogus extra round) rather than a crash. Verified directly with a standalone script asserting `decision.mission == transition.mission` for every round of a multi-round episode, plus a forced single-pick-per-round edge case (6 rounds for a 6-unit budget) checking rollout length/effort consistency. Full 64/64 suite passes; `scripts/run_gnn_backbone_sanity.py` and a `train_gnn_policy.py` smoke run at the same seed as an earlier pre-refactor run reproduce closely matching loss/entropy trajectories.
+
+**Why this matters for reviewing the earlier entries in this thread:** the v0/v1/v2 comparison runs were all executed *before* this fix, using the old hand-rolled loop (not `AdaptiveMissionLoop`, no lookahead-planning call, so the misattribution bug described above could not have occurred in that code path - it only exists in code that calls `execute_pending()`/`run_round()` and then reads planner state back out, which the old loop never did). Their results stand as reported. This entry exists so nobody has to independently re-derive whether the fix invalidates prior numbers: it does not, because the bug it fixes didn't exist in the code that produced them.
+
+**Owner:** Demu.
