@@ -12,6 +12,33 @@ EXPECTED_EFFORT_COLUMNS = {"SiteID", "month", "Year", "trap.sets"}
 EXPECTED_COORD_COLUMNS = {"SiteID", "Year", "LatitudeDD", "LongitudeDD"}
 EXPECTED_TEMP_COLUMNS = {"SiteNum", "year", "mdy", "x"}
 
+MONTH_NAME_TO_NUMBER = {
+    "january": "1",
+    "jan": "1",
+    "february": "2",
+    "feb": "2",
+    "march": "3",
+    "mar": "3",
+    "april": "4",
+    "apr": "4",
+    "may": "5",
+    "june": "6",
+    "jun": "6",
+    "july": "7",
+    "jul": "7",
+    "august": "8",
+    "aug": "8",
+    "september": "9",
+    "sep": "9",
+    "sept": "9",
+    "october": "10",
+    "oct": "10",
+    "november": "11",
+    "nov": "11",
+    "december": "12",
+    "dec": "12",
+}
+
 
 def _read_csv(path: Path) -> tuple[list[dict[str, str]], list[str]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -45,11 +72,35 @@ def _norm_integer_like(value: str | None) -> str:
     return text
 
 
+def _norm_month(value: str | None) -> str:
+    """Normalize supported English month names/abbreviations and numeric months.
+
+    Unknown non-empty labels return an empty string so the audit surfaces them as
+    invalid join keys rather than silently treating them as a different month code.
+    """
+
+    text = _norm(value)
+    if not text:
+        return ""
+
+    named = MONTH_NAME_TO_NUMBER.get(text.lower())
+    if named is not None:
+        return named
+
+    try:
+        numeric = float(text)
+    except ValueError:
+        return ""
+    if numeric.is_integer() and 1 <= int(numeric) <= 12:
+        return str(int(numeric))
+    return ""
+
+
 def _key_cama(row: dict[str, str]) -> tuple[str, str, str]:
     return (
         _norm_integer_like(row.get("SiteID")),
         _norm_integer_like(row.get("Year")),
-        _norm_integer_like(row.get("Month")),
+        _norm_month(row.get("Month")),
     )
 
 
@@ -57,7 +108,7 @@ def _key_effort(row: dict[str, str]) -> tuple[str, str, str]:
     return (
         _norm_integer_like(row.get("SiteID")),
         _norm_integer_like(row.get("Year")),
-        _norm_integer_like(row.get("month")),
+        _norm_month(row.get("month")),
     )
 
 
@@ -251,9 +302,7 @@ def audit(
             for row in temperature_rows
             if (value := _float_or_none(row.get("x"))) is not None
         ]
-        cama_site_years = {
-            (key[0], key[1]) for key in valid_cama_keys
-        }
+        cama_site_years = {(key[0], key[1]) for key in valid_cama_keys}
         temp_site_years = {
             (
                 _norm_integer_like(row.get("SiteNum")),
@@ -342,6 +391,7 @@ def print_report(report: dict[str, Any]) -> None:
 
     print()
     print("Interpretation gate:")
+    print("  Month names and numeric months are normalized explicitly for joins.")
     print("  Missing CAMA is NOT treated as zero detection.")
     print("  This script checks data availability and join coverage only.")
     print("  It does NOT validate an ecological model and does NOT estimate q.")
