@@ -113,6 +113,44 @@ def test_audit_surfaces_incomplete_join_without_imputing(tmp_path: Path) -> None
     assert result["coordinate_join"]["unmatched_example_keys"]
 
 
+def test_audit_does_not_turn_missing_cama_into_zero_detection(tmp_path: Path) -> None:
+    cama = tmp_path / "cama.csv"
+    effort = tmp_path / "effort.csv"
+    coords = tmp_path / "coords.csv"
+
+    _write_csv(
+        cama,
+        ["Year", "SiteID", "Month", "habtype", "CAMA"],
+        [
+            {"Year": 2023, "SiteID": 1, "Month": 4, "habtype": "lagoon", "CAMA": ""},
+            {"Year": 2023, "SiteID": 1, "Month": 5, "habtype": "lagoon", "CAMA": 0},
+            {"Year": 2023, "SiteID": 1, "Month": 6, "habtype": "lagoon", "CAMA": 2},
+        ],
+    )
+    _write_csv(
+        effort,
+        ["SiteID", "month", "Year", "trap.sets"],
+        [
+            {"SiteID": 1, "month": 4, "Year": 2023, "trap.sets": 6},
+            {"SiteID": 1, "month": 5, "Year": 2023, "trap.sets": 6},
+            {"SiteID": 1, "month": 6, "Year": 2023, "trap.sets": 6},
+        ],
+    )
+    _write_csv(
+        coords,
+        ["SiteID", "Year", "LatitudeDD", "LongitudeDD"],
+        [{"SiteID": 1, "Year": 2023, "LatitudeDD": 48.0, "LongitudeDD": -122.0}],
+    )
+
+    result = audit(cama, effort, coords)
+
+    assert result["cama"]["missing_outcome_rows"] == 1
+    assert result["cama"]["observed_outcome_rows"] == 2
+    assert result["cama"]["zero_detection_rows"] == 1
+    assert result["cama"]["detection_rows"] == 1
+    assert result["cama"]["detection_row_fraction"] == 0.5
+
+
 def test_audit_rejects_missing_required_columns(tmp_path: Path) -> None:
     cama = tmp_path / "cama.csv"
     effort = tmp_path / "effort.csv"
