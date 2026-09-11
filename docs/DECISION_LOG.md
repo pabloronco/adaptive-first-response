@@ -239,3 +239,28 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 **Why this matters for reviewing the earlier entries in this thread:** the v0/v1/v2 comparison runs were all executed *before* this fix, using the old hand-rolled loop (not `AdaptiveMissionLoop`, no lookahead-planning call, so the misattribution bug described above could not have occurred in that code path - it only exists in code that calls `execute_pending()`/`run_round()` and then reads planner state back out, which the old loop never did). Their results stand as reported. This entry exists so nobody has to independently re-derive whether the fix invalidates prior numbers: it does not, because the bug it fixes didn't exist in the code that produced them.
 
 **Owner:** Demu.
+
+## 2026-09-11 — Same-seed ablation (D/E/F): humbler result than v0/v1/v2 suggested
+
+**Status:** PROPOSED, still unreviewed. This tempers the optimism of the earlier v0/v1/v2 entries rather than confirming it - read both together, not this one in isolation.
+
+**Setup**: three runs on the now-refactored (`AdaptiveMissionLoop`-based) code, all `missed_extent_weight=8.0`, all **seed=10** (unlike v0/v1/v2's one-seed-per-variant design), 3.5h each: **D** (`gamma=0.99`, replicates v1's hyperparameters at a new seed), **E** (`gamma=0.995`, same seed as D - isolates gamma cleanly for the first time), **F** (`gamma=0.99` + entropy-coefficient decay 0.01->0.0005 over 4000 updates, testing the fix from the entry above).
+
+**Final numbers** (all on the same fixed 20-incident held-out set as every prior entry):
+- **D**: final 0.1546 (its best ever), but the full trajectory is highly volatile - its last 15 evals range from 0.155 to 0.341, with three separate points *worse* than Frontier's 0.2543 scattered through them. The good final number looks like it landed on a lucky checkpoint, not a converged, trustworthy policy.
+- **E**: mostly tighter (0.16-0.22 for 14 of its last 15 evals) but with one sharp outlier at update 3800 (0.390, well worse than Frontier). Ends at 0.2006. More consistent than D overall, but not clean.
+- **F**: the noisiest of the three - five separate points at or worse than Frontier scattered through its last 15 evals (0.255, 0.255, 0.359, and a final 0.3054), interspersed with good ones (0.183-0.201). Entropy collapsed to ~2.8-3.0 nats (coefficient near its 0.0005 floor) without settling into reliably good behavior.
+
+**What this changes about the previous entry's conclusions:**
+- The gamma question (0.99 vs 0.995) is **still not resolved**, and if anything looks less decidable than before: with seed now controlled, neither D nor E clearly dominates the other - D swings harder in both directions, E is tighter except for one bad excursion. No confident causal claim about gamma is supportable from two seeds.
+- **v1's remarkable stability in the first round (never once below Frontier across its whole second half) does not replicate here.** Neither D (same gamma as v1) nor E nor F comes close to that level of consistency at similar update counts. The honest reading is that v1's specific run was an unusually good outcome - a favorable seed and/or training trajectory - not a property of `missed_extent_weight=8.0` that reproduces reliably on its own.
+- The entropy-decay fix (F) does **not** look like a win here - if anything, F's second half shows *more* frequent excursions to Frontier-or-worse than D or E, right as its entropy bottoms out. Collapsing entropy this aggressively (to a 0.0005 floor within 4000 updates) plausibly removes the policy's ability to recover from a bad patch rather than helping it commit to a good one. Do not carry this specific schedule forward without revisiting it.
+
+**Revised overall picture across both rounds (six seeds total: v0, v1, v2, D, E, F)**: `missed_extent_weight=8.0` reliably produces policies that spend *some* portion of training clearly ahead of Frontier - none of the five reweighted runs (v1, v2, D, E, F) failed to beat Frontier at some point, unlike the unweighted v0, which never did. But **consistency is highly run-to-run variable**, and at least three of the five (v2 briefly, D, F) show real excursions to at-or-worse-than-Frontier even late in training. This is not yet a "GNN/RL reliably beats Frontier" result - it is "the reward shape can produce that outcome, inconsistently, with a single-seed actor-critic setup that has no variance-reduction beyond return normalization."
+
+**Recommended next steps, revised:**
+1. Same as before: Pablo/Fede review is the actual next step, not more solo runs by Demu.
+2. If the team wants a more decisive answer before committing further compute: the highest-value next experiment is not another gamma/entropy variant, but **variance reduction at the algorithm level** - more episodes per update (currently 32), and/or averaging multiple seeds per configuration before comparing, rather than reading single-seed trajectories as if they were representative.
+3. Any demo-facing claim should report a distribution across seeds/checkpoints ("beats Frontier in N of M evaluated checkpoints"), not a single cherry-picked best number - several of this run's "best ever" readings (e.g. D's 0.1546) sit right next to much worse ones a few hundred updates away.
+
+**Owner:** Demu (unilateral, PROPOSED); awaiting Pablo + Fede review of the whole thread, now with a more complete and more honest picture than the first round alone would have given.
