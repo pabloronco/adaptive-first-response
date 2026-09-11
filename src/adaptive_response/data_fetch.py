@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 import urllib.error
@@ -13,6 +14,7 @@ from typing import Any, Iterable
 
 
 DRYAD_API_BASE = "https://datadryad.org/api/v2"
+DRYAD_ORIGIN = "https://datadryad.org"
 DRYAD_FILE_STREAM_BASES = (
     "https://datadryad.org/downloads/file_stream/{file_id}",
     "https://datadryad.org/stash/downloads/file_stream/{file_id}",
@@ -76,6 +78,39 @@ def _embedded_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _resource_id(item: dict[str, Any], resource: str) -> int:
+    """Extract a Dryad numeric id from either a legacy `id` or HAL link.
+
+    Current public Dryad responses expose version/file identifiers primarily in
+    `_links.self.href` (for example `/api/v2/versions/355108`) rather than as a
+    top-level `id`. Keeping both paths makes the fetcher tolerant of either API
+    representation without guessing from filenames.
+    """
+    direct = item.get("id")
+    try:
+        if direct is not None:
+            return int(direct)
+    except (TypeError, ValueError):
+        pass
+
+    plural = f"{resource}s"
+    links = item.get("_links", {})
+    if isinstance(links, dict):
+        ordered_keys = ["self", f"stash:{resource}", "stash:download"]
+        for key in ordered_keys + [key for key in links if key not in ordered_keys]:
+            link = links.get(key)
+            if not isinstance(link, dict):
+                continue
+            href = link.get("href")
+            if not isinstance(href, str):
+                continue
+            match = re.search(rf"/{re.escape(plural)}/(\d+)(?:/|$)", href)
+            if match:
+                return int(match.group(1))
+
+    raise RuntimeError(f"Dryad {resource} metadata has no usable numeric id")
+
+
 def _latest_version_id(doi: str) -> int:
     encoded = urllib.parse.quote(doi, safe="")
     payload = _request_json(f"{DRYAD_API_BASE}/datasets/{encoded}/versions")
@@ -85,22 +120,21 @@ def _latest_version_id(doi: str) -> int:
 
     def version_key(item: dict[str, Any]) -> tuple[int, int]:
         number = item.get("versionNumber")
-        item_id = item.get("id")
         try:
             number_i = int(number)
         except (TypeError, ValueError):
             number_i = -1
         try:
-            id_i = int(item_id)
-        except (TypeError, ValueError):
+            id_i = _resource_id(item, "version")
+        except RuntimeError:
             id_i = -1
         return number_i, id_i
 
     latest = max(versions, key=version_key)
     try:
-        return int(latest["id"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise RuntimeError(f"Dryad version metadata for {doi} has no usable id") from exc
+        return _resource_id(latest, "version")
+    except RuntimeError as exc:
+        raise RuntimeError(f"Dryad version metadata for {doi} has no usable id/link") from exc
 
 
 def list_dataset_files(doi: str) -> list[dict[str, Any]]:
@@ -131,10 +165,29 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _download_file_stream(file_id: int, destination: Path) -> None:
+def _metadata_download_url(metadata: dict[str, Any]) -> str | None:
+    links = metadata.get("_links", {})
+    if not isinstance(links, dict):
+        return None
+    download = links.get("stash:download")
+    if not isinstance(download, dict):
+        return None
+    href = download.get("href")
+    if not isinstance(href, str) or not href:
+        return None
+    return urllib.parse.urljoin(DRYAD_ORIGIN, href)
+
+
+def _download_file(metadata: dict[str, Any], file_id: int, destination: Path) -> None:
+    """Download a public Dryad file, trying the advertised link then public streams."""
+    urls: list[str] = []
+    advertised = _metadata_download_url(metadata)
+    if advertised:
+        urls.append(advertised)
+    urls.extend(template.format(file_id=file_id) for template in DRYAD_FILE_STREAM_BASES)
+
     errors: list[str] = []
-    for template in DRYAD_FILE_STREAM_BASES:
-        url = template.format(file_id=file_id)
+    for url in dict.fromkeys(urls):
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         try:
             with urllib.request.urlopen(request, timeout=120) as response, destination.open("wb") as out:
@@ -142,8 +195,11 @@ def _download_file_stream(file_id: int, destination: Path) -> None:
             return
         except urllib.error.HTTPError as exc:
             errors.append(f"{url} -> HTTP {exc.code}")
+            destination.unlink(missing_ok=True)
         except urllib.error.URLError as exc:
             errors.append(f"{url} -> {exc.reason}")
+            destination.unlink(missing_ok=True)
+
     raise RuntimeError("Unable to download Dryad file. " + "; ".join(errors))
 
 
@@ -173,9 +229,9 @@ def fetch_targets(
         files = by_doi.setdefault(target.doi, list_dataset_files(target.doi))
         metadata = select_file_metadata(files, target.filename)
         try:
-            file_id = int(metadata["id"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeError(f"Dryad metadata for {target.filename} has no usable file id") from exc
+            file_id = _resource_id(metadata, "file")
+        except RuntimeError as exc:
+            raise RuntimeError(f"Dryad metadata for {target.filename} has no usable file id/link") from exc
 
         expected_size_raw = metadata.get("size")
         try:
@@ -185,7 +241,7 @@ def fetch_targets(
 
         with tempfile.TemporaryDirectory(prefix="r0_dryad_") as temp_dir:
             temp_path = Path(temp_dir) / target.filename
-            _download_file_stream(file_id, temp_path)
+            _download_file(metadata, file_id, temp_path)
             actual_size = temp_path.stat().st_size
             if expected_size is not None and actual_size != expected_size:
                 raise RuntimeError(
