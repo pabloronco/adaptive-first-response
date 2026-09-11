@@ -81,6 +81,68 @@ def test_audit_normalizes_integer_like_join_keys(tmp_path: Path) -> None:
     assert result["coordinate_join"]["coverage_fraction"] == 1.0
 
 
+def test_audit_normalizes_month_names_to_numeric_effort_months(tmp_path: Path) -> None:
+    cama = tmp_path / "cama.csv"
+    effort = tmp_path / "effort.csv"
+    coords = tmp_path / "coords.csv"
+
+    _write_csv(
+        cama,
+        ["Year", "SiteID", "Month", "habtype", "CAMA"],
+        [
+            {"Year": 2023, "SiteID": 101, "Month": "April", "habtype": "lagoon", "CAMA": 0},
+            {"Year": 2023, "SiteID": 101, "Month": "September", "habtype": "lagoon", "CAMA": 1},
+        ],
+    )
+    _write_csv(
+        effort,
+        ["SiteID", "month", "Year", "trap.sets"],
+        [
+            {"SiteID": 101, "month": 4, "Year": 2023, "trap.sets": 6},
+            {"SiteID": 101, "month": 9, "Year": 2023, "trap.sets": 5},
+        ],
+    )
+    _write_csv(
+        coords,
+        ["SiteID", "Year", "LatitudeDD", "LongitudeDD"],
+        [{"SiteID": 101, "Year": 2023, "LatitudeDD": 48.1, "LongitudeDD": -122.5}],
+    )
+
+    result = audit(cama, effort, coords)
+
+    assert result["cama"]["invalid_join_key_rows"] == 0
+    assert result["effort_join"]["coverage_fraction"] == 1.0
+    assert result["effort_join"]["trap_sets_median"] == 5.5
+
+
+def test_audit_marks_unknown_month_labels_invalid(tmp_path: Path) -> None:
+    cama = tmp_path / "cama.csv"
+    effort = tmp_path / "effort.csv"
+    coords = tmp_path / "coords.csv"
+
+    _write_csv(
+        cama,
+        ["Year", "SiteID", "Month", "habtype", "CAMA"],
+        [{"Year": 2023, "SiteID": 101, "Month": "not-a-month", "habtype": "lagoon", "CAMA": 0}],
+    )
+    _write_csv(
+        effort,
+        ["SiteID", "month", "Year", "trap.sets"],
+        [{"SiteID": 101, "month": 4, "Year": 2023, "trap.sets": 6}],
+    )
+    _write_csv(
+        coords,
+        ["SiteID", "Year", "LatitudeDD", "LongitudeDD"],
+        [{"SiteID": 101, "Year": 2023, "LatitudeDD": 48.1, "LongitudeDD": -122.5}],
+    )
+
+    result = audit(cama, effort, coords)
+
+    assert result["cama"]["valid_join_key_rows"] == 0
+    assert result["cama"]["invalid_join_key_rows"] == 1
+    assert result["effort_join"]["matched_rows"] == 0
+
+
 def test_audit_surfaces_incomplete_join_without_imputing(tmp_path: Path) -> None:
     cama = tmp_path / "cama.csv"
     effort = tmp_path / "effort.csv"
