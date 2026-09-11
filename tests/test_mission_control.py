@@ -12,6 +12,11 @@ def test_initial_snapshot_is_20_site_hidden_incident() -> None:
     assert snapshot["resources"]["remaining_budget"] == 30
     assert snapshot["incident"]["truth_locked"] is True
     assert all("true_occupied" not in node for node in snapshot["nodes"])
+    assert {node["zone"] for node in snapshot["nodes"]} == {
+        "coast",
+        "harbor",
+        "offshore",
+    }
 
 
 def test_plan_uses_real_planner_and_returns_budget_valid_mission() -> None:
@@ -46,6 +51,26 @@ def test_execute_surfaces_real_observations_and_belief_shift() -> None:
     )
     assert snapshot["phase"] == "mission_planned"
     assert snapshot["mission"] is not None
+
+
+def test_default_demo_first_evidence_physically_changes_next_mission() -> None:
+    """Protect the demo's central causal moment from becoming visually static."""
+
+    session = MissionControlSession()
+    planned = session.plan()
+    first_targets = tuple(
+        row["site_id"] for row in planned["mission"]["allocations"]
+    )
+
+    updated = session.execute()
+    next_targets = tuple(
+        row["site_id"] for row in updated["mission"]["allocations"]
+    )
+
+    assert first_targets == ("site_08", "site_10")
+    assert next_targets == ("site_12", "site_16")
+    assert updated["mission_changed"] is True
+    assert updated["replan"]["changed"] is True
 
 
 def test_reveal_remains_unavailable_until_budget_is_exhausted() -> None:
