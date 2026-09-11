@@ -24,6 +24,18 @@ class TrainerConfig:
     gamma: float = 0.99
     value_loss_coef: float = 0.5
     entropy_coef: float = 0.01
+    # Optional linear decay of entropy_coef down to entropy_coef_final over
+    # entropy_coef_decay_updates update() calls, then held constant.
+    # CURRENT DEFAULT off (entropy_coef_decay_updates=0): added after
+    # observing (2026-09-11 Decision Log entries) that a larger
+    # missed_extent_weight plateaus entropy around 8-13 nats for thousands of
+    # updates instead of converging like the original weighting did - a
+    # bigger, noisier terminal-reward-driven gradient signal plus a constant
+    # entropy bonus can outweigh the pressure to commit to a confident policy.
+    # Decaying the bonus's weight is the standard lever for "explore early,
+    # commit later" without changing the reward itself.
+    entropy_coef_final: float = 0.01
+    entropy_coef_decay_updates: int = 0
     max_grad_norm: float = 1.0
 
 
@@ -35,6 +47,7 @@ class UpdateStats:
     entropy: float
     mean_episode_return: float
     mean_advantage: float
+    entropy_coef_used: float
 
 
 class ActorCriticTrainer:
@@ -42,6 +55,14 @@ class ActorCriticTrainer:
         self.policy = policy
         self.config = config or TrainerConfig()
         self.optimizer = torch.optim.Adam(policy.parameters(), lr=self.config.lr)
+        self._update_count = 0
+
+    def current_entropy_coef(self) -> float:
+        cfg = self.config
+        if cfg.entropy_coef_decay_updates <= 0:
+            return cfg.entropy_coef
+        progress = min(self._update_count / cfg.entropy_coef_decay_updates, 1.0)
+        return cfg.entropy_coef + progress * (cfg.entropy_coef_final - cfg.entropy_coef)
 
     def discounted_returns(self, rewards: list[float]) -> torch.Tensor:
         returns: list[float] = []
@@ -79,19 +100,21 @@ class ActorCriticTrainer:
         if advantages.numel() > 1 and advantages.std() > 1e-8:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
+        entropy_coef = self.current_entropy_coef()
         policy_loss = -(log_probs * advantages).mean()
         value_loss = nn.functional.mse_loss(values, returns)
         entropy_bonus = entropies.mean()
         loss = (
             policy_loss
             + self.config.value_loss_coef * value_loss
-            - self.config.entropy_coef * entropy_bonus
+            - entropy_coef * entropy_bonus
         )
 
         self.optimizer.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm)
         self.optimizer.step()
+        self._update_count += 1
 
         mean_episode_return = sum(sum(r.rewards) for r in rollouts) / len(rollouts)
 
@@ -102,4 +125,5 @@ class ActorCriticTrainer:
             entropy=float(entropy_bonus.item()),
             mean_episode_return=float(mean_episode_return),
             mean_advantage=float(advantages.mean().item()),
+            entropy_coef_used=float(entropy_coef),
         )

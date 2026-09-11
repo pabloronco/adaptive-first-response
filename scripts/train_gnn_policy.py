@@ -57,6 +57,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--value-loss-coef", type=float, default=0.5)
     parser.add_argument("--entropy-coef", type=float, default=0.01)
+    parser.add_argument("--entropy-coef-final", type=float, default=0.01, help="If different from --entropy-coef, linearly decayed to over --entropy-coef-decay-updates.")
+    parser.add_argument("--entropy-coef-decay-updates", type=int, default=0, help="0 disables decay (entropy_coef stays constant).")
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--episodes-per-update", type=int, default=32)
     parser.add_argument("--num-threads", type=int, default=None, help="torch.set_num_threads(); leave unset for torch's default. Set low (e.g. 2) when running several training processes concurrently on one CPU.")
@@ -155,6 +157,8 @@ def main() -> None:
             gamma=args.gamma,
             value_loss_coef=args.value_loss_coef,
             entropy_coef=args.entropy_coef,
+            entropy_coef_final=args.entropy_coef_final,
+            entropy_coef_decay_updates=args.entropy_coef_decay_updates,
             max_grad_norm=args.max_grad_norm,
         ),
     )
@@ -169,8 +173,8 @@ def main() -> None:
     eval_path = run_dir / "eval.csv"
     metrics_fields = [
         "update", "elapsed_s", "loss", "policy_loss", "value_loss", "entropy",
-        "mean_return", "mean_advantage", "mean_rounds", "mean_detections",
-        "mean_effort", "mean_missed_fraction",
+        "entropy_coef_used", "mean_return", "mean_advantage", "mean_rounds",
+        "mean_detections", "mean_effort", "mean_missed_fraction",
     ]
     eval_fields = [
         "update", "elapsed_s", "rl_missed_fraction", "rl_mean_rounds",
@@ -224,16 +228,17 @@ def main() -> None:
             with metrics_path.open("a", newline="") as f:
                 csv.writer(f).writerow([
                     update_idx, f"{elapsed:.1f}", stats.loss, stats.policy_loss,
-                    stats.value_loss, stats.entropy, stats.mean_episode_return,
-                    stats.mean_advantage, mean_rounds, mean_detections, mean_effort,
-                    mean_missed_fraction,
+                    stats.value_loss, stats.entropy, stats.entropy_coef_used,
+                    stats.mean_episode_return, stats.mean_advantage, mean_rounds,
+                    mean_detections, mean_effort, mean_missed_fraction,
                 ])
 
             print(
                 f"[update {update_idx:5d} | {elapsed/3600:5.2f}h] "
                 f"return={stats.mean_episode_return:+7.3f} "
                 f"missed_frac={mean_missed_fraction:.3f} "
-                f"loss={stats.loss:+7.4f} entropy={stats.entropy:.3f}"
+                f"loss={stats.loss:+7.4f} entropy={stats.entropy:.3f} "
+                f"(coef={stats.entropy_coef_used:.4f})"
             )
 
             if update_idx % args.eval_every_updates == 0:
