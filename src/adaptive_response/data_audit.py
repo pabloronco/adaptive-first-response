@@ -68,6 +68,10 @@ def _key_coord(row: dict[str, str]) -> tuple[str, str]:
     )
 
 
+def _complete_key(key: tuple[str, ...]) -> bool:
+    return all(part != "" for part in key)
+
+
 def _float_or_none(value: str | None) -> float | None:
     text = _norm(value)
     if text.lower() in {"", "na", "nan", "null", "none"}:
@@ -75,10 +79,12 @@ def _float_or_none(value: str | None) -> float | None:
     return float(text)
 
 
-def _int_or_zero(value: str | None) -> int:
+def _count_or_none(value: str | None) -> int | None:
     parsed = _float_or_none(value)
     if parsed is None:
-        return 0
+        return None
+    if parsed < 0 or not parsed.is_integer():
+        raise ValueError(f"Expected a non-negative integer count, got {value!r}")
     return int(parsed)
 
 
@@ -90,9 +96,9 @@ def audit(
 ) -> dict[str, Any]:
     """Audit candidate joins before any ecological model is fitted.
 
-    This function intentionally does not impute missing effort, coordinates or
-    environmental data. Its purpose is to quantify whether the proposed joins
-    are actually supported by the downloaded source tables.
+    This function intentionally does not impute missing outcomes, effort,
+    coordinates or environmental data. Its purpose is to quantify whether the
+    proposed joins are actually supported by the downloaded source tables.
     """
 
     cama_rows, cama_cols = _read_csv(cama_path)
@@ -103,22 +109,35 @@ def audit(
     _require_columns(effort_path, effort_cols, EXPECTED_EFFORT_COLUMNS)
     _require_columns(coords_path, coord_cols, EXPECTED_COORD_COLUMNS)
 
+    cama_keys = [_key_cama(row) for row in cama_rows]
+    effort_keys = [_key_effort(row) for row in effort_rows]
+    coord_keys = [_key_coord(row) for row in coord_rows]
+
+    cama_duplicates = Counter(key for key in cama_keys if _complete_key(key))
+    effort_duplicates = Counter(key for key in effort_keys if _complete_key(key))
+    coord_duplicates = Counter(key for key in coord_keys if _complete_key(key))
+
     effort_by_key: dict[tuple[str, str, str], dict[str, str]] = {}
-    effort_duplicates = Counter(_key_effort(row) for row in effort_rows)
-    for row in effort_rows:
-        effort_by_key.setdefault(_key_effort(row), row)
+    for row, key in zip(effort_rows, effort_keys):
+        if _complete_key(key):
+            effort_by_key.setdefault(key, row)
 
     coord_by_key: dict[tuple[str, str], dict[str, str]] = {}
-    coord_duplicates = Counter(_key_coord(row) for row in coord_rows)
-    for row in coord_rows:
-        coord_by_key.setdefault(_key_coord(row), row)
+    for row, key in zip(coord_rows, coord_keys):
+        if _complete_key(key):
+            coord_by_key.setdefault(key, row)
 
-    cama_keys = [_key_cama(row) for row in cama_rows]
-    matched_effort = [key for key in cama_keys if key in effort_by_key]
-    matched_coords = [key for key in cama_keys if (key[0], key[1]) in coord_by_key]
+    valid_cama_keys = [key for key in cama_keys if _complete_key(key)]
+    matched_effort = [key for key in valid_cama_keys if key in effort_by_key]
+    matched_coords = [
+        key for key in valid_cama_keys if (key[0], key[1]) in coord_by_key
+    ]
 
-    cama_counts = [_int_or_zero(row.get("CAMA")) for row in cama_rows]
-    detections = [count > 0 for count in cama_counts]
+    cama_counts = [_count_or_none(row.get("CAMA")) for row in cama_rows]
+    observed_cama_counts = [count for count in cama_counts if count is not None]
+    detection_rows = sum(count > 0 for count in observed_cama_counts)
+    zero_detection_rows = sum(count == 0 for count in observed_cama_counts)
+
     trap_sets = [
         _float_or_none(effort_by_key[key].get("trap.sets"))
         for key in matched_effort
@@ -141,9 +160,13 @@ def audit(
     )
     habitats = Counter(_norm(row.get("habtype")) for row in cama_rows)
 
-    unmatched_effort_keys = [key for key in cama_keys if key not in effort_by_key]
+    unmatched_effort_keys = [
+        key for key in valid_cama_keys if key not in effort_by_key
+    ]
     unmatched_coord_keys = [
-        key for key in cama_keys if (key[0], key[1]) not in coord_by_key
+        key
+        for key in valid_cama_keys
+        if (key[0], key[1]) not in coord_by_key
     ]
 
     report: dict[str, Any] = {
@@ -151,33 +174,57 @@ def audit(
             "rows": len(cama_rows),
             "sites": len(sites),
             "years": years,
-            "total_cama": sum(cama_counts),
-            "detection_rows": sum(detections),
-            "zero_detection_rows": len(detections) - sum(detections),
+            "valid_join_key_rows": len(valid_cama_keys),
+            "invalid_join_key_rows": len(cama_rows) - len(valid_cama_keys),
+            "duplicate_site_month_keys": sum(
+                count - 1 for count in cama_duplicates.values() if count > 1
+            ),
+            "observed_outcome_rows": len(observed_cama_counts),
+            "missing_outcome_rows": len(cama_rows) - len(observed_cama_counts),
+            "total_cama": sum(observed_cama_counts),
+            "detection_rows": detection_rows,
+            "zero_detection_rows": zero_detection_rows,
             "detection_row_fraction": (
-                sum(detections) / len(detections) if detections else None
+                detection_rows / len(observed_cama_counts)
+                if observed_cama_counts
+                else None
             ),
             "habitat_counts": dict(sorted(habitats.items())),
         },
         "effort_join": {
             "join_key": ["SiteID", "Year", "Month"],
+            "source_rows": len(effort_rows),
+            "valid_source_key_rows": sum(_complete_key(key) for key in effort_keys),
             "matched_rows": len(matched_effort),
             "coverage_fraction": (
                 len(matched_effort) / len(cama_rows) if cama_rows else None
+            ),
+            "coverage_among_valid_cama_keys": (
+                len(matched_effort) / len(valid_cama_keys)
+                if valid_cama_keys
+                else None
             ),
             "duplicate_effort_keys": sum(
                 count - 1 for count in effort_duplicates.values() if count > 1
             ),
             "unmatched_example_keys": unmatched_effort_keys[:20],
+            "trap_sets_nonmissing_rows": len(trap_sets),
             "trap_sets_min": min(trap_sets) if trap_sets else None,
             "trap_sets_median": statistics.median(trap_sets) if trap_sets else None,
             "trap_sets_max": max(trap_sets) if trap_sets else None,
         },
         "coordinate_join": {
             "join_key": ["SiteID", "Year"],
+            "source_rows": len(coord_rows),
+            "valid_source_key_rows": sum(_complete_key(key) for key in coord_keys),
             "matched_rows": len(matched_coords),
             "coverage_fraction": (
                 len(matched_coords) / len(cama_rows) if cama_rows else None
+            ),
+            "coverage_among_valid_cama_keys": (
+                len(matched_coords) / len(valid_cama_keys)
+                if valid_cama_keys
+                else None
             ),
             "duplicate_coordinate_keys": sum(
                 count - 1 for count in coord_duplicates.values() if count > 1
@@ -204,7 +251,9 @@ def audit(
             for row in temperature_rows
             if (value := _float_or_none(row.get("x"))) is not None
         ]
-        cama_site_years = {(key[0], key[1]) for key in cama_keys}
+        cama_site_years = {
+            (key[0], key[1]) for key in valid_cama_keys
+        }
         temp_site_years = {
             (
                 _norm_integer_like(row.get("SiteNum")),
@@ -218,6 +267,7 @@ def audit(
             "rows": len(temperature_rows),
             "sites": len(temp_sites),
             "years": sorted(temp_years),
+            "nonmissing_temperature_rows": len(temp_values),
             "overlapping_cama_site_years": len(overlapping_site_years),
             "cama_site_year_coverage_fraction": (
                 len(overlapping_site_years) / len(cama_site_years)
@@ -243,27 +293,33 @@ def print_report(report: dict[str, Any]) -> None:
 
     print("=== R0 REAL-DATA AUDIT ===")
     print(
-        f"CAMA table: {cama['rows']} site-month rows | "
-        f"{cama['sites']} sites | years={','.join(cama['years'])}"
+        f"CAMA table: {cama['rows']} rows | {cama['sites']} sites | "
+        f"years={','.join(cama['years'])}"
     )
     print(
-        f"Green-crab outcomes: {cama['total_cama']} total CAMA | "
-        f"{cama['detection_rows']} detection rows | "
+        f"CAMA keys: valid={cama['valid_join_key_rows']} | "
+        f"invalid={cama['invalid_join_key_rows']} | "
+        f"duplicate site-month keys={cama['duplicate_site_month_keys']}"
+    )
+    print(
+        f"Green-crab outcomes: observed={cama['observed_outcome_rows']} | "
+        f"missing={cama['missing_outcome_rows']} | total CAMA={cama['total_cama']} | "
+        f"detection rows={cama['detection_rows']} | "
         f"zero fraction={pct(1.0 - cama['detection_row_fraction']) if cama['detection_row_fraction'] is not None else 'n/a'}"
     )
     print(
         f"Exact effort join (SiteID,Year,Month): {effort['matched_rows']}/{cama['rows']} "
-        f"({pct(effort['coverage_fraction'])})"
+        f"({pct(effort['coverage_fraction'])}) | duplicate effort keys={effort['duplicate_effort_keys']}"
     )
     print(
         f"Coordinate join (SiteID,Year): {coords['matched_rows']}/{cama['rows']} "
-        f"({pct(coords['coverage_fraction'])})"
+        f"({pct(coords['coverage_fraction'])}) | duplicate coordinate keys={coords['duplicate_coordinate_keys']}"
     )
     if effort["trap_sets_median"] is not None:
         print(
             "Trap sets among matched rows: "
-            f"min={effort['trap_sets_min']}, median={effort['trap_sets_median']}, "
-            f"max={effort['trap_sets_max']}"
+            f"n={effort['trap_sets_nonmissing_rows']}, min={effort['trap_sets_min']}, "
+            f"median={effort['trap_sets_median']}, max={effort['trap_sets_max']}"
         )
     print(f"Habitat counts: {cama['habitat_counts']}")
 
@@ -271,7 +327,7 @@ def print_report(report: dict[str, Any]) -> None:
         temp = report["temperature"]
         print(
             f"Temperature logger table: {temp['rows']} rows | {temp['sites']} sites | "
-            f"years={','.join(temp['years'])}"
+            f"years={','.join(temp['years'])} | nonmissing={temp['nonmissing_temperature_rows']}"
         )
         print(
             "Temperature overlap with CAMA site-years: "
@@ -286,5 +342,6 @@ def print_report(report: dict[str, Any]) -> None:
 
     print()
     print("Interpretation gate:")
+    print("  Missing CAMA is NOT treated as zero detection.")
     print("  This script checks data availability and join coverage only.")
     print("  It does NOT validate an ecological model and does NOT estimate q.")
