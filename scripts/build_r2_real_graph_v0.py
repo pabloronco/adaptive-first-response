@@ -4,13 +4,13 @@ import csv
 import json
 from pathlib import Path
 
-from adaptive_response.graph_filter_sensitivity import load_adaptive_water_candidates
 from adaptive_response.real_graph import load_real_sites
 from adaptive_response.real_graph_v0 import build_real_graph_v0_audit
+from adaptive_response.route_graph_sensitivity import load_water_route_edges
 
 
 REAL_SITES = Path("data/processed/r2_real_sites.csv")
-ADAPTIVE_WATER = Path("data/processed/r2_adaptive_water_candidates.csv")
+ROUTES = Path("data/processed/r2_salishseacast_water_routes.csv")
 OUT_EDGES = Path("data/processed/r2_real_graph_v0_edges.csv")
 OUT_AUDIT = Path("data/processed/r2_real_graph_v0_audit.json")
 
@@ -18,13 +18,13 @@ OUT_AUDIT = Path("data/processed/r2_real_graph_v0_audit.json")
 def main() -> None:
     if not REAL_SITES.is_file():
         raise SystemExit(f"Missing {REAL_SITES}")
-    if not ADAPTIVE_WATER.is_file():
+    if not ROUTES.is_file():
         raise SystemExit(
-            f"Missing {ADAPTIVE_WATER}. Run diagnose_r2_adaptive_water.py first."
+            f"Missing {ROUTES}. Run diagnose_r2_salishseacast_routes.py first."
         )
 
     sites = load_real_sites(REAL_SITES)
-    rows = load_adaptive_water_candidates(ADAPTIVE_WATER)
+    rows = load_water_route_edges(ROUTES)
     edges, summary = build_real_graph_v0_audit(sites, rows)
 
     OUT_EDGES.parent.mkdir(parents=True, exist_ok=True)
@@ -37,15 +37,15 @@ def main() -> None:
     OUT_AUDIT.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     graph = summary["primary_graph"]
-    stability = summary["topology_stability_vs_all_local"]
+    route = summary["route_diagnostics"]
 
-    print("=== R2 REAL GRAPH V0 BUILD ===")
-    print("STATUS: CURRENT DEFAULT, not ecological ground truth.")
-    print("Rule: <=20 km local candidates; withhold zero straight-water-support edges; never force sparse-review edges.")
+    print("=== R2 REVISED REAL GRAPH V0 BUILD ===")
+    print("STATUS: CURRENT DEFAULT PRIMARY ADJACENCY, not ecological ground truth.")
+    print("Rule: <=20 km local candidates + audited curved water-route existence; no hard route-distance threshold.")
+    print("Sparse-review-only edges never force connectivity.")
     print()
     print(
         f"sites={summary['sites']} | primary edges={summary['primary_edges']} | "
-        f"withheld zero-water local edges={summary['withheld_zero_water_local_edges']} | "
         f"review-only edges excluded={summary['sampling_isolation_review_only_edges']}"
     )
     print(
@@ -55,22 +55,23 @@ def main() -> None:
         f"degree min/med/max={graph['degree_min']}/{graph['degree_median']}/{graph['degree_max']}"
     )
     print(
-        "Topology vs all-local reference: "
-        f"components unchanged={stability['components_unchanged']} | "
-        f"largest unchanged={stability['largest_component_unchanged']} | "
-        f"isolates unchanged={stability['isolated_sites_unchanged']}"
+        "Route context: "
+        f"total-route median={route['total_route_proxy_km_median']:.2f}km | "
+        f"total-detour median={route['total_detour_ratio_median']:.2f} | "
+        f"edges touching snap>1km={route['edges_with_endpoint_snap_gt_1km']} | "
+        f">2km={route['edges_with_endpoint_snap_gt_2km']}"
+    )
+    print(
+        "Old straight-line rule check: "
+        f"straight-zero-water edges retained={summary['straight_zero_water_edges_retained']}"
     )
     print()
-    print("Withheld zero-water local edges (kept as uncertainty, not called impossible):")
-    for row in summary["withheld_zero_water_edges"]:
-        print(
-            f"  {row['src']} -- {row['dst']}: d={row['distance_km']:.2f} km"
-        )
-    print()
-    print("GATE:")
-    print("  This freezes a transparent PRIMARY ADJACENCY DEFAULT only.")
+    print("DECISION:")
+    print("  REJECTED: straight-water == 0 => withhold edge.")
+    print("  CURRENT DEFAULT: retain all routed <=20 km local candidates in primary adjacency.")
+    print("  Route length/detour stay metadata + topology-sensitivity inputs, not ecological thresholds.")
     print("  connectivity_weight remains OPEN.")
-    print("  Next: test incident-subgraph extraction around an initial detection without using future outcomes.")
+    print("  Next: incident-subgraph extraction, then observation-model/q work.")
     print(f"Wrote {OUT_EDGES}")
     print(f"Wrote {OUT_AUDIT}")
 
