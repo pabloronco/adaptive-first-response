@@ -50,12 +50,7 @@ class WaterGrid:
 
 
 def _download_salishseacast_csv(cache_path: Path, *, timeout: float = 180.0) -> None:
-    """Download one cached static SalishSeaCast T-grid land/water mask extract.
-
-    The file contains grid indices, T-grid longitude/latitude and the documented
-    tmaskutil land/water flag. It is cached under data/cache (gitignored) so
-    repeated diagnostics do not re-download it.
-    """
+    """Download one cached static SalishSeaCast T-grid land/water mask extract."""
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     query = (
         f"glamt[0][0:1:{GRID_Y - 1}][0:1:{GRID_X - 1}],"
@@ -105,7 +100,6 @@ def load_salishseacast_grid(cache_path: Path) -> WaterGrid:
                 lat = float(row["gphit"])
                 water_flag = int(float(row["tmaskutil"]))
             except (TypeError, ValueError):
-                # ERDDAP CSV includes a units row after the header.
                 continue
             if not (0 <= y < GRID_Y and 0 <= x < GRID_X):
                 continue
@@ -130,8 +124,6 @@ def snap_to_nearest_wet_cell(grid: WaterGrid, latitude: float, longitude: float)
     wet_lat = grid.latitude[wet_y, wet_x]
     wet_lon = grid.longitude[wet_y, wet_x]
 
-    # Equirectangular squared distance is sufficient for nearest-cell search;
-    # final reported distance uses haversine.
     lat_scale = math.cos(math.radians(float(latitude)))
     dlat = wet_lat - float(latitude)
     dlon = (wet_lon - float(longitude)) * lat_scale
@@ -150,12 +142,40 @@ def snap_to_nearest_wet_cell(grid: WaterGrid, latitude: float, longitude: float)
 
 
 def _neighbor_cells(grid: WaterGrid, y: int, x: int):
+    """Yield orthogonal and safe diagonal wet neighbours.
+
+    Diagonals reduce staircase inflation on the curvilinear grid. To avoid
+    cutting through a land corner, a diagonal is allowed only when both
+    orthogonal side cells are also wet.
+    """
     height, width = grid.shape
-    for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+    for dy, dx in (
+        (-1, 0),
+        (1, 0),
+        (0, -1),
+        (0, 1),
+        (-1, -1),
+        (-1, 1),
+        (1, -1),
+        (1, 1),
+    ):
         ny = y + dy
         nx = x + dx
-        if 0 <= ny < height and 0 <= nx < width and bool(grid.wet[ny, nx]):
-            yield ny, nx
+        if not (0 <= ny < height and 0 <= nx < width and bool(grid.wet[ny, nx])):
+            continue
+        if dy != 0 and dx != 0:
+            side_a = (y + dy, x)
+            side_b = (y, x + dx)
+            if not (
+                0 <= side_a[0] < height
+                and 0 <= side_a[1] < width
+                and 0 <= side_b[0] < height
+                and 0 <= side_b[1] < width
+                and bool(grid.wet[side_a])
+                and bool(grid.wet[side_b])
+            ):
+                continue
+        yield ny, nx
 
 
 def shortest_water_route_km(
@@ -165,7 +185,7 @@ def shortest_water_route_km(
     *,
     max_route_km: float = 250.0,
 ) -> float | None:
-    """A* shortest path constrained to adjacent wet SalishSeaCast T-grid cells.
+    """A* shortest path constrained to wet SalishSeaCast T-grid cells.
 
     This is a geometric water-route proxy only. It contains no currents,
     directionality, travel time or species-dispersal physics.
@@ -228,7 +248,12 @@ def annotate_edges_with_water_routes(
     *,
     max_route_km: float = 250.0,
 ) -> tuple[list[dict[str, Any]], dict[str, GridSnap]]:
-    """Annotate candidate edges with curved water-only path distances."""
+    """Annotate candidate edges with curved water-only path diagnostics.
+
+    ``salishseacast_water_route_km`` is the route between snapped wet cells.
+    ``salishseacast_total_route_proxy_km`` adds both endpoint snap distances so
+    the reported proxy does not silently ignore the site-to-grid displacement.
+    """
     relevant_sites = sorted(
         {str(row["src"]) for row in edges} | {str(row["dst"]) for row in edges}
     )
@@ -256,17 +281,28 @@ def annotate_edges_with_water_routes(
                 b,
                 max_route_km=max_route_km,
             )
-        route = route_cache[key]
+        grid_route = route_cache[key]
         direct = float(row["distance_km"])
+        total_route_proxy = (
+            grid_route + src_snap.distance_km + dst_snap.distance_km
+            if grid_route is not None
+            else None
+        )
         out = dict(row)
         out.update(
             {
                 "salishseacast_src_snap_km": src_snap.distance_km,
                 "salishseacast_dst_snap_km": dst_snap.distance_km,
-                "salishseacast_route_found": route is not None,
-                "salishseacast_water_route_km": route,
+                "salishseacast_route_found": grid_route is not None,
+                "salishseacast_water_route_km": grid_route,
                 "salishseacast_detour_ratio": (
-                    route / direct if route is not None and direct > 0.0 else None
+                    grid_route / direct if grid_route is not None and direct > 0.0 else None
+                ),
+                "salishseacast_total_route_proxy_km": total_route_proxy,
+                "salishseacast_total_detour_ratio": (
+                    total_route_proxy / direct
+                    if total_route_proxy is not None and direct > 0.0
+                    else None
                 ),
             }
         )
