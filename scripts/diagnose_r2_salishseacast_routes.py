@@ -16,7 +16,7 @@ from adaptive_response.water_route import (
 
 REAL_SITES = Path("data/processed/r2_real_sites.csv")
 ADAPTIVE_WATER = Path("data/processed/r2_adaptive_water_candidates.csv")
-GRID_CACHE = Path("data/cache/salishseacast/ubcSSnBathymetryV21-08.csv")
+GRID_CACHE = Path("data/cache/salishseacast/ubcSSn2DMeshMaskV21-08.csv")
 OUT_CSV = Path("data/processed/r2_salishseacast_water_routes.csv")
 OUT_JSON = Path("data/processed/r2_salishseacast_water_routes_audit.json")
 
@@ -37,7 +37,7 @@ def main() -> None:
 
     print("=== R2 SALISHSEACAST CURVED WATER-ROUTE AUDIT ===")
     print("Purpose: replace straight-line thinking with a water-only shortest-path diagnostic.")
-    print("Source: SalishSeaCast NEMO v21-08 static grid/bathymetry.")
+    print("Source: SalishSeaCast NEMO v21-08 T-grid + explicit land/water mask.")
     print("Important: this is geometry only — NOT currents, travel time, or dispersal probability.")
     print()
 
