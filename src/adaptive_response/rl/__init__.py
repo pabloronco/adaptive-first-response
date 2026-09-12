@@ -15,6 +15,13 @@ with the team, not unilaterally in this module.
 """
 
 from .backbone import ActorCriticOutput, GNNActorCritic
+from .benchmark import (
+    BenchmarkCase,
+    BenchmarkRow,
+    make_benchmark_cases,
+    run_benchmark_suite,
+    write_benchmark_csv,
+)
 from .checkpointing import (
     LoadedCheckpoint,
     PolicyArchitectureConfig,
@@ -33,6 +40,8 @@ from .training_env import EpisodeRollout, run_episode
 __all__ = [
     "ActorCriticOutput",
     "ActorCriticTrainer",
+    "BenchmarkCase",
+    "BenchmarkRow",
     "EpisodeMetrics",
     "EpisodeRollout",
     "GNNActorCritic",
@@ -49,10 +58,13 @@ __all__ = [
     "graph_state_to_tensors",
     "load_optimizer_state",
     "load_policy_checkpoint",
+    "make_benchmark_cases",
     "round_reward",
+    "run_benchmark_suite",
     "run_episode",
     "run_planner_episode",
     "sample_incident",
     "save_policy_checkpoint",
     "terminal_missed_extent_penalty",
+    "write_benchmark_csv",
 ]
