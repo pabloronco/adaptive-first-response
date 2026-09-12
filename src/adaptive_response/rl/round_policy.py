@@ -30,6 +30,14 @@ class RoundDecision:
     value: torch.Tensor  # scalar, critic estimate at round start
     entropy: torch.Tensor  # scalar
     num_picks: int
+    # Engineering-block additions (logging/debugging only, no effect on the
+    # action/reward semantics above): the raw per-node actor logits computed
+    # once at the start of the round (pre-mask, pre-picks), paired with the
+    # node_ids they correspond to, so a decision can be logged/inspected
+    # without recomputing anything. Defaulted for backward compatibility with
+    # any code constructing RoundDecision without them.
+    node_ids: tuple[str, ...] = ()
+    node_logits: tuple[float, ...] = ()
 
 
 class RoundPolicy(nn.Module):
@@ -146,4 +154,6 @@ class RoundPolicy(nn.Module):
             value=value,
             entropy=total_entropy,
             num_picks=len(allocations),
+            node_ids=tensors.node_ids,
+            node_logits=tuple(node_logits.detach().tolist()),
         )

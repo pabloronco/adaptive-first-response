@@ -28,6 +28,33 @@ class RewardConfig:
     missed_extent_weight: float = 1.0  # eta, per truly-occupied site never detected
 
 
+def round_reward_components(
+    *,
+    belief_before: BeliefState,
+    belief_after: BeliefState,
+    detections_this_round: int,
+    effort_spent_this_round: int,
+    config: RewardConfig | None = None,
+) -> dict[str, float]:
+    """Same computation as `round_reward`, broken out by term for logging
+    (engineering block, 2026-09-12). `round_reward`'s value is unchanged and
+    is defined as the sum of these components - see
+    test_reward_components_sum_to_round_reward for the pinned equivalence.
+    """
+
+    cfg = config or RewardConfig()
+
+    mean_uncertainty_before = _mean(belief_before.uncertainty_by_site)
+    mean_uncertainty_after = _mean(belief_after.uncertainty_by_site)
+    uncertainty_reduction = mean_uncertainty_before - mean_uncertainty_after
+
+    return {
+        "uncertainty_reduction": cfg.uncertainty_reduction_weight * uncertainty_reduction,
+        "detections": cfg.detection_weight * float(detections_this_round),
+        "effort_cost": -cfg.effort_cost_weight * float(effort_spent_this_round),
+    }
+
+
 def round_reward(
     *,
     belief_before: BeliefState,
@@ -38,17 +65,14 @@ def round_reward(
 ) -> float:
     """Shaped, per-round reward. Uses only publicly observable quantities."""
 
-    cfg = config or RewardConfig()
-
-    mean_uncertainty_before = _mean(belief_before.uncertainty_by_site)
-    mean_uncertainty_after = _mean(belief_after.uncertainty_by_site)
-    uncertainty_reduction = mean_uncertainty_before - mean_uncertainty_after
-
-    return (
-        cfg.uncertainty_reduction_weight * uncertainty_reduction
-        + cfg.detection_weight * float(detections_this_round)
-        - cfg.effort_cost_weight * float(effort_spent_this_round)
+    components = round_reward_components(
+        belief_before=belief_before,
+        belief_after=belief_after,
+        detections_this_round=detections_this_round,
+        effort_spent_this_round=effort_spent_this_round,
+        config=config,
     )
+    return sum(components.values())
 
 
 def terminal_missed_extent_penalty(

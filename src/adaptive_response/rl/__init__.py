@@ -29,9 +29,15 @@ from .checkpointing import (
     load_policy_checkpoint,
     save_policy_checkpoint,
 )
+from .decision_logger import JsonlDecisionLogger, RoundLogRecord, read_jsonl_records
 from .eval_utils import EpisodeMetrics, RLPlannerAdapter, run_planner_episode
 from .incident_sampler import IncidentSamplerConfig, sample_incident
-from .reward import RewardConfig, round_reward, terminal_missed_extent_penalty
+from .reward import (
+    RewardConfig,
+    round_reward,
+    round_reward_components,
+    terminal_missed_extent_penalty,
+)
 from .round_policy import RoundDecision, RoundPolicy
 from .tensor_adapter import GraphTensors, graph_state_to_tensors
 from .trainer import ActorCriticTrainer, TrainerConfig, UpdateStats
@@ -47,11 +53,13 @@ __all__ = [
     "GNNActorCritic",
     "GraphTensors",
     "IncidentSamplerConfig",
+    "JsonlDecisionLogger",
     "LoadedCheckpoint",
     "PolicyArchitectureConfig",
     "RLPlannerAdapter",
     "RewardConfig",
     "RoundDecision",
+    "RoundLogRecord",
     "RoundPolicy",
     "TrainerConfig",
     "UpdateStats",
@@ -59,7 +67,9 @@ __all__ = [
     "load_optimizer_state",
     "load_policy_checkpoint",
     "make_benchmark_cases",
+    "read_jsonl_records",
     "round_reward",
+    "round_reward_components",
     "run_benchmark_suite",
     "run_episode",
     "run_planner_episode",
