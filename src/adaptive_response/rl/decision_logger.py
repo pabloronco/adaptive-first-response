@@ -23,6 +23,7 @@ class RoundLogRecord:
     num_picks: int
     node_ids: tuple[str, ...]
     node_logits: tuple[float, ...]
+    eligible_mask: tuple[bool, ...]
     value_estimate: float
     entropy: float
     log_prob: float

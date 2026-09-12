@@ -181,6 +181,7 @@ def _log_round(
         num_picks=decision.num_picks,
         node_ids=decision.node_ids,
         node_logits=decision.node_logits,
+        eligible_mask=decision.eligible_mask,
         value_estimate=float(decision.value.item()),
         entropy=float(decision.entropy.item()),
         log_prob=float(decision.log_prob.item()),

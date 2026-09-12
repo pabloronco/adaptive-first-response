@@ -38,6 +38,14 @@ class RoundDecision:
     # any code constructing RoundDecision without them.
     node_ids: tuple[str, ...] = ()
     node_logits: tuple[float, ...] = ()
+    # Same-length, index-aligned with node_ids/node_logits: which nodes were
+    # actually legal to pick at the start of the round (GraphState feasibility,
+    # before any within-round "already picked" exclusion). Lets a later reader
+    # zip node_ids/node_logits/eligible_mask together and tell a genuinely
+    # low-scoring legal action apart from a high-scoring one that was never
+    # legal in the first place. Read-only reporting of the mask `act()`
+    # already computes and applies - does not change masking/sampling.
+    eligible_mask: tuple[bool, ...] = ()
 
 
 class RoundPolicy(nn.Module):
@@ -156,4 +164,5 @@ class RoundPolicy(nn.Module):
             num_picks=len(allocations),
             node_ids=tensors.node_ids,
             node_logits=tuple(node_logits.detach().tolist()),
+            eligible_mask=tuple(bool(v) for v in tensors.feasibility_mask.tolist()),
         )

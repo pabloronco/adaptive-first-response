@@ -67,6 +67,7 @@ def test_jsonl_decision_logger_round_trips(tmp_path) -> None:
                 num_picks=1,
                 node_ids=("site_00", "site_01"),
                 node_logits=(0.5, -0.3),
+                eligible_mask=(True, True),
                 value_estimate=0.1,
                 entropy=1.2,
                 log_prob=-0.7,
@@ -86,6 +87,7 @@ def test_jsonl_decision_logger_round_trips(tmp_path) -> None:
                 num_picks=1,
                 node_ids=("site_00", "site_01"),
                 node_logits=(0.4, -0.1),
+                eligible_mask=(True, False),
                 value_estimate=0.05,
                 entropy=0.9,
                 log_prob=-0.5,
@@ -100,7 +102,9 @@ def test_jsonl_decision_logger_round_trips(tmp_path) -> None:
     assert len(records) == 2
     assert records[0]["round_index"] == 0
     assert records[0]["site_ids_picked"] == ["site_00"]
+    assert records[0]["eligible_mask"] == [True, True]
     assert records[1]["done"] is True
+    assert records[1]["eligible_mask"] == [True, False]
     assert records[1]["reward_components"]["terminal_missed_extent"] == -1.0
 
 
@@ -122,9 +126,10 @@ def test_run_episode_with_decision_logger_produces_one_record_per_round(tmp_path
     assert [r["round_index"] for r in records] == list(range(rollout.num_rounds))
     assert records[-1]["done"] is True
     assert all(not r["done"] for r in records[:-1])
-    # Node logits/ids are present and match the graph size for every round.
+    # Node logits/ids/eligibility are present and match the graph size for every round.
     for r in records:
-        assert len(r["node_logits"]) == len(r["node_ids"]) == 10
+        assert len(r["node_logits"]) == len(r["node_ids"]) == len(r["eligible_mask"]) == 10
+        assert any(r["eligible_mask"])  # at least one legal action every round
     # Terminal reward component only appears on the last, done=True record.
     assert "terminal_missed_extent" in records[-1]["reward_components"]
     assert all("terminal_missed_extent" not in r["reward_components"] for r in records[:-1])
