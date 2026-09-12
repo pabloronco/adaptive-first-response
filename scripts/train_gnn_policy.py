@@ -30,6 +30,7 @@ from adaptive_response import FrontierPlanner
 from adaptive_response.rl import (
     ActorCriticTrainer,
     IncidentSamplerConfig,
+    JsonlDecisionLogger,
     PolicyArchitectureConfig,
     RewardConfig,
     RLPlannerAdapter,
@@ -79,6 +80,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval-every-updates", type=int, default=20)
     parser.add_argument("--eval-episodes", type=int, default=20)
     parser.add_argument("--checkpoint-every-updates", type=int, default=20)
+    parser.add_argument("--decision-log", action="store_true", help="Write a per-round JSONL decision log (logits, entropy, value, reward components, chosen actions, budget) alongside metrics.csv. Off by default: can grow large over a long run.")
     return parser.parse_args()
 
 
@@ -199,6 +201,9 @@ def main() -> None:
     with eval_path.open("w", newline="") as f:
         csv.writer(f).writerow(eval_fields)
 
+    decision_logger = JsonlDecisionLogger(run_dir / "decisions.jsonl") if args.decision_log else None
+    episode_counter = 0
+
     start_time = time.time()
     max_seconds = args.max_hours * 3600.0
     update_idx = 0
@@ -218,15 +223,19 @@ def main() -> None:
             if args.max_updates is None and (time.time() - start_time) >= max_seconds:
                 break
 
-            rollouts = [
-                run_episode(
-                    policy,
-                    sample_incident(train_rng, sampler_config),
-                    reward_config=reward_config,
-                    seed=int(train_rng.integers(0, 2**31 - 1)),
+            rollouts = []
+            for _ in range(args.episodes_per_update):
+                rollouts.append(
+                    run_episode(
+                        policy,
+                        sample_incident(train_rng, sampler_config),
+                        reward_config=reward_config,
+                        seed=int(train_rng.integers(0, 2**31 - 1)),
+                        decision_logger=decision_logger,
+                        episode_index=episode_counter,
+                    )
                 )
-                for _ in range(args.episodes_per_update)
-            ]
+                episode_counter += 1
             stats = trainer.update(rollouts)
             update_idx += 1
             elapsed = time.time() - start_time
@@ -285,6 +294,8 @@ def main() -> None:
             architecture, run_name=args.run_name, seed=args.seed,
         )
         print(f"Saved final checkpoint at update {update_idx} to {run_dir / 'final.pt'}")
+        if decision_logger is not None:
+            decision_logger.close()
 
 
 if __name__ == "__main__":
