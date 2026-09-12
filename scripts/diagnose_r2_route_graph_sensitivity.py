@@ -28,8 +28,9 @@ def main() -> None:
     summary = compare_route_distance_topologies(sites, rows)
     OUT_JSON.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
-    print("=== R2 CURVED WATER-ROUTE GRAPH SENSITIVITY ===")
-    print("Question: if marine-route distance replaces straight-line water sampling as the geometry sanity check, how stable is the topology?")
+    print("=== R2 REFINED CURVED WATER-ROUTE GRAPH SENSITIVITY ===")
+    print("Route proxy = wet-grid path + both site-to-grid snap distances.")
+    print("A* uses safe diagonal water moves to reduce grid staircase inflation.")
     print("Sparse-review-only edges remain excluded from all primary variants.")
     print()
 
@@ -56,9 +57,11 @@ def main() -> None:
     print()
     print(
         "Local-edge route diagnostics: "
-        f"edges={route['edges']} | route median={route['route_km_median']:.2f}km | "
-        f"detour median={route['detour_ratio_median']:.2f} | "
-        f"detour>2={route['detour_ratio_gt_2']} | >3={route['detour_ratio_gt_3']} | >5={route['detour_ratio_gt_5']}"
+        f"edges={route['edges']} | grid-route median={route['grid_route_km_median']:.2f}km | "
+        f"total-route proxy median={route['total_route_proxy_km_median']:.2f}km | "
+        f"total detour median={route['total_detour_ratio_median']:.2f} | "
+        f"detour>2={route['total_detour_ratio_gt_2']} | "
+        f">3={route['total_detour_ratio_gt_3']} | >5={route['total_detour_ratio_gt_5']}"
     )
     print(
         "Edges touching coarse snaps: "
@@ -69,15 +72,16 @@ def main() -> None:
     for row in route["most_extreme_detours"]:
         print(
             f"  {row['src']} -- {row['dst']}: direct={row['direct_km']:.2f}km | "
-            f"route={row['route_km']:.2f}km | detour={row['detour_ratio']:.2f} | "
+            f"grid={row['grid_route_km']:.2f}km | total={row['total_route_proxy_km']:.2f}km | "
+            f"detour={row['total_detour_ratio']:.2f} | "
             f"max-snap={row['max_endpoint_snap_km']:.2f}km"
         )
 
     print()
     print("DECISION GATE:")
     print("  Do not freeze a route threshold from connectivity convenience alone.")
-    print("  Large snap distances lower confidence in route geometry for pocket-estuary sites.")
-    print("  If topology is stable over a broad route-distance range, use the simplest transparent v0 and retain alternatives for OOD/topology sensitivity.")
+    print("  Endpoint snap distance is now included in the route proxy, but large snaps still lower confidence.")
+    print("  Safe diagonal moves reduce grid artefact; remaining route values are still geometric proxies, not dispersal probabilities.")
     print("  connectivity_weight remains OPEN.")
     print(f"Wrote {OUT_JSON}")
 
