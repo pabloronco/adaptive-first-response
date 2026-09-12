@@ -242,7 +242,8 @@ class FragmentedPatchyWorldModel:
         initial = _site_by_id(context)[context.initial_detection]
         candidates = [site for site in context.sites if site.id != context.initial_detection]
         candidates.sort(key=lambda site: _distance(initial, site), reverse=True)
-        anchor_pool = candidates[: max(extra_patches * 3, extra_patches)]
+        remote_pool_size = max(extra_patches, max(1, len(candidates) // 2))
+        anchor_pool = candidates[:remote_pool_size]
         anchors = [initial]
         if anchor_pool:
             anchors.extend(rng.sample(anchor_pool, k=min(extra_patches, len(anchor_pool))))
