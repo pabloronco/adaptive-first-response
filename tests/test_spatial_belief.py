@@ -2,9 +2,13 @@ import pytest
 
 from adaptive_response import (
     EcologicalHypothesis,
+    Edge,
+    GraphStateExporter,
     Observation,
     ObservationBatch,
+    PublicState,
     QHypothesis,
+    Site,
     SpatialBeliefEngine,
 )
 
@@ -31,8 +35,10 @@ def test_confirmed_site_conditions_worlds_without_changing_q_support() -> None:
         confirmed_sites={"a"},
     )
 
-    assert belief.p_by_site() == {"a": pytest.approx(1.0), "b": pytest.approx(1.0)}
-    assert belief.q_posterior() == {0.1: pytest.approx(0.5), 0.3: pytest.approx(0.5)}
+    assert belief.p_by_site()["a"] == pytest.approx(1.0)
+    assert belief.p_by_site()["b"] == pytest.approx(1.0)
+    assert belief.q_posterior()[0.1] == pytest.approx(0.5)
+    assert belief.q_posterior()[0.3] == pytest.approx(0.5)
     assert sum(belief.weights) == pytest.approx(1.0)
 
 
@@ -132,6 +138,37 @@ def test_projection_to_existing_belief_state_preserves_observable_contract() -> 
     assert projected.observed_history == (observation,)
     assert not hasattr(projected, "hypotheses")
     assert not hasattr(projected, "hidden_world")
+
+
+def test_spatial_projection_exports_through_existing_graphstate_schema() -> None:
+    prior = SpatialBeliefEngine.initialize(correlated_worlds(), [QHypothesis(0.2)])
+    updated = SpatialBeliefEngine.update(
+        prior,
+        batch(Observation("a", effort=3, detection=False, round=1)),
+    )
+    public_state = PublicState(
+        sites=[
+            Site("a", 0.0, 0.0, habitat_score=0.4, q_model=0.2),
+            Site("b", 1.0, 0.0, habitat_score=0.6, q_model=0.2),
+        ],
+        edges=[Edge("a", "b", distance=1.0)],
+        initial_detection="a",
+        remaining_budget=4,
+        round=1,
+        teams=1,
+        protocol="test",
+        seed=7,
+    )
+
+    graph_state = GraphStateExporter().export(public_state, updated.as_belief_state())
+    node_index = {site_id: index for index, site_id in enumerate(graph_state.node_ids)}
+
+    assert graph_state.node_features[node_index["a"]][0] == pytest.approx(
+        updated.p_by_site()["a"]
+    )
+    assert graph_state.node_features[node_index["b"]][0] == pytest.approx(
+        updated.p_by_site()["b"]
+    )
 
 
 def test_joint_weights_remain_normalized_and_effective_sample_size_is_valid() -> None:
