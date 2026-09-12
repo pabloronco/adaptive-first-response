@@ -17,60 +17,43 @@ def _sites() -> list[dict[str, object]]:
     ]
 
 
+def _row(
+    src: str,
+    dst: str,
+    direct: float,
+    grid_route: float,
+    src_snap: float,
+    dst_snap: float,
+    *,
+    local: bool,
+) -> dict[str, object]:
+    total = grid_route + src_snap + dst_snap
+    return {
+        "src": src,
+        "dst": dst,
+        "distance_km": direct,
+        "candidate_local_radius": local,
+        "candidate_sparse_review": not local,
+        "salishseacast_route_found": True,
+        "salishseacast_water_route_km": grid_route,
+        "salishseacast_detour_ratio": grid_route / direct,
+        "salishseacast_total_route_proxy_km": total,
+        "salishseacast_total_detour_ratio": total / direct,
+        "salishseacast_src_snap_km": src_snap,
+        "salishseacast_dst_snap_km": dst_snap,
+    }
+
+
 def _rows() -> list[dict[str, object]]:
     return [
-        {
-            "src": "A",
-            "dst": "B",
-            "distance_km": 8.0,
-            "candidate_local_radius": True,
-            "candidate_sparse_review": False,
-            "salishseacast_route_found": True,
-            "salishseacast_water_route_km": 9.0,
-            "salishseacast_detour_ratio": 1.125,
-            "salishseacast_src_snap_km": 0.2,
-            "salishseacast_dst_snap_km": 0.3,
-        },
-        {
-            "src": "B",
-            "dst": "C",
-            "distance_km": 10.0,
-            "candidate_local_radius": True,
-            "candidate_sparse_review": False,
-            "salishseacast_route_found": True,
-            "salishseacast_water_route_km": 24.0,
-            "salishseacast_detour_ratio": 2.4,
-            "salishseacast_src_snap_km": 0.3,
-            "salishseacast_dst_snap_km": 1.4,
-        },
-        {
-            "src": "C",
-            "dst": "D",
-            "distance_km": 12.0,
-            "candidate_local_radius": True,
-            "candidate_sparse_review": False,
-            "salishseacast_route_found": True,
-            "salishseacast_water_route_km": 42.0,
-            "salishseacast_detour_ratio": 3.5,
-            "salishseacast_src_snap_km": 1.4,
-            "salishseacast_dst_snap_km": 0.4,
-        },
-        {
-            "src": "A",
-            "dst": "D",
-            "distance_km": 40.0,
-            "candidate_local_radius": False,
-            "candidate_sparse_review": True,
-            "salishseacast_route_found": True,
-            "salishseacast_water_route_km": 45.0,
-            "salishseacast_detour_ratio": 1.125,
-            "salishseacast_src_snap_km": 0.2,
-            "salishseacast_dst_snap_km": 0.4,
-        },
+        _row("A", "B", 8.0, 9.0, 0.2, 0.3, local=True),
+        _row("B", "C", 10.0, 24.0, 0.3, 1.4, local=True),
+        _row("C", "D", 12.0, 42.0, 1.4, 0.4, local=True),
+        _row("A", "D", 40.0, 45.0, 0.2, 0.4, local=False),
     ]
 
 
-def test_route_thresholds_change_only_primary_local_edges() -> None:
+def test_route_thresholds_use_endpoint_corrected_proxy_on_local_edges_only() -> None:
     summary = compare_route_distance_topologies(
         _sites(), _rows(), route_thresholds_km=(20.0, 30.0, 50.0)
     )
@@ -96,11 +79,12 @@ def test_extract_site_snap_distances_requires_consistency() -> None:
         extract_site_snap_distances(rows)
 
 
-def test_detour_summary_flags_extreme_routes() -> None:
+def test_detour_summary_uses_total_route_proxy() -> None:
     summary = compare_route_distance_topologies(_sites(), _rows())
     route = summary["local_route"]
-    assert route["detour_ratio_gt_2"] == 2
-    assert route["detour_ratio_gt_3"] == 1
-    assert route["detour_ratio_gt_5"] == 0
+    assert route["total_detour_ratio_gt_2"] == 2
+    assert route["total_detour_ratio_gt_3"] == 1
+    assert route["total_detour_ratio_gt_5"] == 0
     assert route["most_extreme_detours"][0]["src"] == "C"
     assert route["most_extreme_detours"][0]["dst"] == "D"
+    assert route["total_route_proxy_km_median"] > route["grid_route_km_median"]
