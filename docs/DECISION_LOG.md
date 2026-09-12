@@ -293,3 +293,23 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 **Validation:** Full suite 100/100 (`test_belief`8, `test_benchmark`7, `test_checkpointing`7, `test_decision_logging`4, `test_environment`6, `test_frontier_planner`9, `test_gnn_backbone`11, `test_graph_state`8, `test_hardening`18, `test_mission_loop`8, `test_round_policy_training`6, `test_simulator_step`8). Team-authorized smoke run after all four pieces landed together (`engineering_block_smoke`, 10 updates x 4 episodes/update, `--decision-log` on): zero crashes, checkpoints saved/loadable, `decisions.jsonl` produced 175 well-formed records with `done`/`terminal_missed_extent` set only on each episode's true final round. No hyperparameter campaign, no claim of learning quality drawn from this run.
 
 **Owner:** Demu.
+
+## 2026-09-12 — Team ecology/data update acknowledged; engineering block confirmed still frozen; tiny eligible-mask hardening added
+
+**Status:** ACKNOWLEDGED. Recording the team's substantive real-data progress for traceability, confirming compliance with their explicit instruction to keep the engineering block frozen, and logging the one small permitted addition. No design decision made unilaterally here.
+
+**What the team reported:** real monitoring network now at 49 sites; primary real graph v0 (variable degree, disconnected allowed, 118 local routed edges) - straight-line-water rejection was explicitly discarded after curved SalishSeaCast routing showed all 12 previously-rejected local edges actually have viable water routes; incident extraction is now deterministic from the initial detection + static graph only; 46/49 possible seeds naturally produce 14-17-site incident graphs, 3 genuinely isolated monitoring sites stay size-1 rather than being artificially bridged; monthly monitoring table has 1,975 site-year-month observations at 99.6% effort coverage.
+
+**Important ecological finding, not a design choice:** per-effort detectability `q` is **not identifiable** from this dataset alone - the team will not infer it from raw detection fraction. The functional form `P(no detection | occupied, e, q) = (1-q)^e` is FROZEN; the numeric value of `q` is explicitly NOT frozen yet. Current MVP direction (leaning, not decided): an uncertain effective protocol-level `q` - simulator-side `q_true` sampled from a constrained distribution, belief-side uncertainty over `q`, plus dedicated q-shift/OOD tests. **No `q` node feature or GraphState schema change is authorized yet.**
+
+**Explicit instruction, reconfirmed:** the engineering block stays FROZEN. No serious training, no reward tuning, no variance reduction, no Information Gain implementation, no GraphState/action-schema changes - all still "yet," pending the second ecological handoff (spatial belief + world-model/validation contracts).
+
+**Two notes recorded for that eventual integration:**
+1. Final benchmark cases must come from the externally frozen ecological benchmark/world-model pack, not the current toy `sample_incident` generator. The team confirmed `BenchmarkCase` (added this engineering block, see the entry above) "looks suitable for that" - no interface change anticipated, just a different case source plugged in later.
+2. When integration begins: rebase/sync once against the then-current ecological branch and rerun the combined suite. Branches have evolved in parallel and diverged in size - this branch is at 100 tests, the team's data/ecology branch is already at 135 - purely a consequence of parallel work, not a discrepancy to resolve now.
+
+**Tiny hardening actually done (explicitly authorized as "optional, only if genuinely quick," no policy-behavior change permitted):** `RoundDecision`/`RoundLogRecord` gained `eligible_mask: tuple[bool, ...]`, index-aligned with the existing `node_ids`/`node_logits`, so a later reader can tell a genuinely low-scoring legal action apart from a high-scoring one that was never legal - a direct read-out of the feasibility mask `act()` already computes, not a new computation (commit `4888f0f`). Full 100/100 suite still green; verified with a real `--decision-log` CLI smoke run.
+
+**What happens next:** nothing else, per instruction. Waiting for the real second ecological handoff (real graph + observation model/q + spatial belief + world-model families + frozen validation splits/metrics) before resuming any training-adjacent work.
+
+**Owner:** Demu; acknowledging Pablo + Fede's ecology/data update.
