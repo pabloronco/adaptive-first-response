@@ -279,3 +279,17 @@ This file mirrors project-relevant decisions made after Project Freeze 3.0 for t
 **What Demu does next, per the freeze's own instruction:** wait for Pablo/Fede's real-data/world-model/action-space freeze before any further training aimed at a project result. In the meantime, permitted work is explicitly non-ecological: backbone robustness, deterministic inference, logging, checkpointing, training-pipeline reliability, and tests - i.e. engineering hardening of what already exists, not new experiments on the toy generator.
 
 **Owner:** Demu; acknowledging Pablo + Fede's team-approved freeze (PR #10).
+
+## 2026-09-12 — Engineering block complete: checkpointing, hardening, benchmark runner, decision logging
+
+**Status:** DONE, per the team's engineering-block instruction (non-ecological work permitted while the second ecological handoff is pending). No action-space/reward/evaluation semantics changed. Full detail in `docs/ENGINEERING_BLOCK_REPORT.md`; this entry is the Decision Log pointer to it.
+
+**Decision/what changed:**
+- `src/adaptive_response/rl/checkpointing.py` (commit `22a257e`): self-describing checkpoints (`PolicyArchitectureConfig` embedded alongside weights), `save_policy_checkpoint`/`load_policy_checkpoint`/`load_optimizer_state`, inference-only loads supported, foreign files rejected with a clear `ValueError`. `train_gnn_policy.py` now builds policies through `PolicyArchitectureConfig.build()` and saves through this module instead of ad hoc `torch.save`.
+- `tests/test_hardening.py` (commit `50327bb`, 18 tests): variable graph size N in {1,2,12,20,24,30,40} including a ~40-episode stochastic stress test against the real `Environment` (no duplicate picks, no budget overrun, terminates within a safety cap), plus widened structural/signature checks that no module under `src/adaptive_response/rl/` can import or accept `HiddenWorld`.
+- `src/adaptive_response/rl/benchmark.py` + `scripts/run_benchmark.py` (commit `5ad0e87`): planner-agnostic benchmark runner (`Planner` protocol only - Frontier/RL/future InformationGain are interchangeable). `BenchmarkRow` is deliberately a raw fact table with no score/rank/winner field, pinned by `test_benchmark_row_has_no_ranking_metric_baked_in`, so this does not freeze evaluation metrics.
+- Per-round decision logging: `RoundDecision` gained `node_ids`/`node_logits` (commit `c607402`); `reward.py` gained `round_reward_components()` (value-preserving refactor, `round_reward()` is now its sum); `decision_logger.py` (new) writes one `RoundLogRecord` per round (logits, entropy, value, log-prob, reward components, chosen sites, budget before/after); `training_env.run_episode()` takes an opt-in `decision_logger` param; `train_gnn_policy.py` exposes it as `--decision-log` (commit `d6ad9fc`), off by default.
+
+**Validation:** Full suite 100/100 (`test_belief`8, `test_benchmark`7, `test_checkpointing`7, `test_decision_logging`4, `test_environment`6, `test_frontier_planner`9, `test_gnn_backbone`11, `test_graph_state`8, `test_hardening`18, `test_mission_loop`8, `test_round_policy_training`6, `test_simulator_step`8). Team-authorized smoke run after all four pieces landed together (`engineering_block_smoke`, 10 updates x 4 episodes/update, `--decision-log` on): zero crashes, checkpoints saved/loadable, `decisions.jsonl` produced 175 well-formed records with `done`/`terminal_missed_extent` set only on each episode's true final round. No hyperparameter campaign, no claim of learning quality drawn from this run.
+
+**Owner:** Demu.
