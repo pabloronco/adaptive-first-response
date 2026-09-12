@@ -47,6 +47,32 @@ def test_shortest_water_route_returns_none_when_components_disconnected() -> Non
     assert shortest_water_route_km(grid, (1, 0), (1, 2), max_route_km=50.0) is None
 
 
+def test_diagonal_water_step_reduces_staircase_inflation() -> None:
+    grid = _grid(
+        [
+            [1, 1],
+            [1, 1],
+        ]
+    )
+    diagonal = shortest_water_route_km(grid, (0, 0), (1, 1), max_route_km=10.0)
+    orthogonal = (
+        shortest_water_route_km(grid, (0, 0), (0, 1), max_route_km=10.0)
+        + shortest_water_route_km(grid, (0, 1), (1, 1), max_route_km=10.0)
+    )
+    assert diagonal is not None
+    assert diagonal < orthogonal
+
+
+def test_diagonal_does_not_cut_through_land_corner() -> None:
+    grid = _grid(
+        [
+            [1, 0],
+            [0, 1],
+        ]
+    )
+    assert shortest_water_route_km(grid, (0, 0), (1, 1), max_route_km=10.0) is None
+
+
 def test_snap_uses_nearest_wet_cell_not_nearest_land_cell() -> None:
     grid = _grid(
         [
@@ -59,7 +85,7 @@ def test_snap_uses_nearest_wet_cell_not_nearest_land_cell() -> None:
     assert snap.distance_km > 0.0
 
 
-def test_annotation_reports_route_and_detour_ratio() -> None:
+def test_annotation_reports_grid_and_endpoint_corrected_route() -> None:
     grid = _grid(
         [
             [1, 1, 1],
@@ -67,12 +93,16 @@ def test_annotation_reports_route_and_detour_ratio() -> None:
         ]
     )
     coords = {
-        "A": (48.0, -122.0),
-        "B": (48.0, -121.98),
+        "A": (48.0005, -122.0005),
+        "B": (48.0005, -121.9795),
     }
     edges = [{"src": "A", "dst": "B", "distance_km": 1.5}]
     rows, snaps = annotate_edges_with_water_routes(grid, edges, coords, max_route_km=20.0)
+    row = rows[0]
     assert set(snaps) == {"A", "B"}
-    assert rows[0]["salishseacast_route_found"] is True
-    assert float(rows[0]["salishseacast_water_route_km"]) > 0.0
-    assert float(rows[0]["salishseacast_detour_ratio"]) > 0.0
+    assert row["salishseacast_route_found"] is True
+    grid_route = float(row["salishseacast_water_route_km"])
+    total_route = float(row["salishseacast_total_route_proxy_km"])
+    assert grid_route > 0.0
+    assert total_route == grid_route + snaps["A"].distance_km + snaps["B"].distance_km
+    assert float(row["salishseacast_total_detour_ratio"]) > 0.0
