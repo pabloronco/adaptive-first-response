@@ -14,9 +14,9 @@ import numpy as np
 from .real_graph import haversine_km
 
 
-SALISHSEACAST_BATHYMETRY_CSV_URL = (
+SALISHSEACAST_MESH_CSV_URL = (
     "https://salishsea.eos.ubc.ca/erddap/griddap/"
-    "ubcSSnBathymetryV21-08.csv"
+    "ubcSSn2DMeshMaskV21-08.csv"
 )
 GRID_Y = 898
 GRID_X = 398
@@ -50,18 +50,19 @@ class WaterGrid:
 
 
 def _download_salishseacast_csv(cache_path: Path, *, timeout: float = 180.0) -> None:
-    """Download one cached static SalishSeaCast grid extract.
+    """Download one cached static SalishSeaCast T-grid land/water mask extract.
 
-    The file contains grid indices plus latitude, longitude and bathymetry. It is
-    cached under data/cache (gitignored) so repeated diagnostics do not re-download it.
+    The file contains grid indices, T-grid longitude/latitude and the documented
+    tmaskutil land/water flag. It is cached under data/cache (gitignored) so
+    repeated diagnostics do not re-download it.
     """
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     query = (
-        f"latitude[0:1:{GRID_Y - 1}][0:1:{GRID_X - 1}],"
-        f"longitude[0:1:{GRID_Y - 1}][0:1:{GRID_X - 1}],"
-        f"bathymetry[0:1:{GRID_Y - 1}][0:1:{GRID_X - 1}]"
+        f"glamt[0][0:1:{GRID_Y - 1}][0:1:{GRID_X - 1}],"
+        f"gphit[0][0:1:{GRID_Y - 1}][0:1:{GRID_X - 1}],"
+        f"tmaskutil[0][0:1:{GRID_Y - 1}][0:1:{GRID_X - 1}]"
     )
-    url = f"{SALISHSEACAST_BATHYMETRY_CSV_URL}?{urllib.parse.quote(query, safe='[],=:')}"
+    url = f"{SALISHSEACAST_MESH_CSV_URL}?{urllib.parse.quote(query, safe='[],=:')}"
     request = urllib.request.Request(
         url,
         headers={"User-Agent": "adaptive-first-response/0.1 SalishSeaCast route audit"},
@@ -81,18 +82,18 @@ def _download_salishseacast_csv(cache_path: Path, *, timeout: float = 180.0) -> 
 
 
 def load_salishseacast_grid(cache_path: Path) -> WaterGrid:
-    """Load or download SalishSeaCast grid geometry using bathymetry>0 as wet mask."""
+    """Load/download SalishSeaCast T-grid geometry and explicit land/water mask."""
     if not cache_path.is_file():
         _download_salishseacast_csv(cache_path)
 
     latitude = np.full((GRID_Y, GRID_X), np.nan, dtype=np.float64)
     longitude = np.full((GRID_Y, GRID_X), np.nan, dtype=np.float64)
-    bathymetry = np.zeros((GRID_Y, GRID_X), dtype=np.float64)
+    wet = np.zeros((GRID_Y, GRID_X), dtype=bool)
     parsed = 0
 
     with cache_path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
-        required = {"gridY", "gridX", "latitude", "longitude", "bathymetry"}
+        required = {"gridY", "gridX", "glamt", "gphit", "tmaskutil"}
         missing = required.difference(reader.fieldnames or [])
         if missing:
             raise ValueError(f"SalishSeaCast CSV missing fields: {sorted(missing)}")
@@ -100,9 +101,9 @@ def load_salishseacast_grid(cache_path: Path) -> WaterGrid:
             try:
                 y = int(float(row["gridY"]))
                 x = int(float(row["gridX"]))
-                lat = float(row["latitude"])
-                lon = float(row["longitude"])
-                depth = float(row["bathymetry"])
+                lon = float(row["glamt"])
+                lat = float(row["gphit"])
+                water_flag = int(float(row["tmaskutil"]))
             except (TypeError, ValueError):
                 # ERDDAP CSV includes a units row after the header.
                 continue
@@ -110,14 +111,14 @@ def load_salishseacast_grid(cache_path: Path) -> WaterGrid:
                 continue
             latitude[y, x] = lat
             longitude[y, x] = lon
-            bathymetry[y, x] = depth
+            wet[y, x] = water_flag == 1
             parsed += 1
 
     expected = GRID_Y * GRID_X
     if parsed != expected:
         raise ValueError(f"Expected {expected} SalishSeaCast grid cells, parsed {parsed}")
 
-    wet = np.isfinite(latitude) & np.isfinite(longitude) & (bathymetry > 0.0)
+    wet &= np.isfinite(latitude) & np.isfinite(longitude)
     return WaterGrid(latitude=latitude, longitude=longitude, wet=wet)
 
 
@@ -164,7 +165,7 @@ def shortest_water_route_km(
     *,
     max_route_km: float = 250.0,
 ) -> float | None:
-    """A* shortest path constrained to adjacent wet SalishSeaCast grid cells.
+    """A* shortest path constrained to adjacent wet SalishSeaCast T-grid cells.
 
     This is a geometric water-route proxy only. It contains no currents,
     directionality, travel time or species-dispersal physics.
