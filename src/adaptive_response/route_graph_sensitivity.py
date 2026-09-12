@@ -27,6 +27,8 @@ def load_water_route_edges(path: Path) -> list[dict[str, Any]]:
             "salishseacast_route_found",
             "salishseacast_water_route_km",
             "salishseacast_detour_ratio",
+            "salishseacast_total_route_proxy_km",
+            "salishseacast_total_detour_ratio",
             "salishseacast_src_snap_km",
             "salishseacast_dst_snap_km",
         }
@@ -37,7 +39,6 @@ def load_water_route_edges(path: Path) -> list[dict[str, Any]]:
 
 
 def extract_site_snap_distances(rows: list[dict[str, Any]]) -> dict[str, float]:
-    """Recover one consistent SalishSeaCast snap distance per site from edge rows."""
     values: dict[str, list[float]] = defaultdict(list)
     for row in rows:
         values[str(row["src"])].append(float(row["salishseacast_src_snap_km"]))
@@ -67,7 +68,7 @@ def _route_filter(rows: list[dict[str, Any]], max_route_km: float) -> list[dict[
     return [
         dict(row)
         for row in _primary_local_rows(rows)
-        if float(row["salishseacast_water_route_km"]) <= max_route_km
+        if float(row["salishseacast_total_route_proxy_km"]) <= max_route_km
     ]
 
 
@@ -77,11 +78,11 @@ def compare_route_distance_topologies(
     *,
     route_thresholds_km: tuple[float, ...] = (20.0, 25.0, 30.0, 40.0, 60.0),
 ) -> dict[str, Any]:
-    """Compare topology sensitivity to curved water-route distance thresholds.
+    """Compare topology sensitivity to endpoint-corrected curved route distance.
 
     Direct geographic <=20 km remains only the candidate-generation envelope.
-    The route thresholds below are diagnostics, not ecological constants.
-    Sparse-review-only edges never enter these primary variants.
+    The route proxy equals wet-grid path plus both site-to-grid snap distances.
+    Thresholds are sensitivity probes, not ecological constants.
     """
     local = _primary_local_rows(rows)
     variants: dict[str, Any] = {"all_local_with_route": graph_summary(sites, local)}
@@ -92,17 +93,18 @@ def compare_route_distance_topologies(
 
     snaps = extract_site_snap_distances(rows)
     snap_values = list(snaps.values())
-    local_detours = [float(row["salishseacast_detour_ratio"]) for row in local]
-    local_routes = [float(row["salishseacast_water_route_km"]) for row in local]
+    local_grid_routes = [float(row["salishseacast_water_route_km"]) for row in local]
+    local_total_routes = [float(row["salishseacast_total_route_proxy_km"]) for row in local]
+    local_grid_detours = [float(row["salishseacast_detour_ratio"]) for row in local]
+    local_total_detours = [float(row["salishseacast_total_detour_ratio"]) for row in local]
 
-    edge_snap_quality = []
-    for row in local:
-        edge_snap_quality.append(
-            max(
-                float(row["salishseacast_src_snap_km"]),
-                float(row["salishseacast_dst_snap_km"]),
-            )
+    edge_snap_quality = [
+        max(
+            float(row["salishseacast_src_snap_km"]),
+            float(row["salishseacast_dst_snap_km"]),
         )
+        for row in local
+    ]
 
     review_only = [
         row
@@ -128,11 +130,13 @@ def compare_route_distance_topologies(
         },
         "local_route": {
             "edges": len(local),
-            "route_km_median": median(local_routes) if local_routes else None,
-            "detour_ratio_median": median(local_detours) if local_detours else None,
-            "detour_ratio_gt_2": sum(value > 2.0 for value in local_detours),
-            "detour_ratio_gt_3": sum(value > 3.0 for value in local_detours),
-            "detour_ratio_gt_5": sum(value > 5.0 for value in local_detours),
+            "grid_route_km_median": median(local_grid_routes) if local_grid_routes else None,
+            "total_route_proxy_km_median": median(local_total_routes) if local_total_routes else None,
+            "grid_detour_ratio_median": median(local_grid_detours) if local_grid_detours else None,
+            "total_detour_ratio_median": median(local_total_detours) if local_total_detours else None,
+            "total_detour_ratio_gt_2": sum(value > 2.0 for value in local_total_detours),
+            "total_detour_ratio_gt_3": sum(value > 3.0 for value in local_total_detours),
+            "total_detour_ratio_gt_5": sum(value > 5.0 for value in local_total_detours),
             "edges_with_endpoint_snap_gt_1km": sum(value > 1.0 for value in edge_snap_quality),
             "edges_with_endpoint_snap_gt_2km": sum(value > 2.0 for value in edge_snap_quality),
             "most_extreme_detours": sorted(
@@ -141,8 +145,9 @@ def compare_route_distance_topologies(
                         "src": str(row["src"]),
                         "dst": str(row["dst"]),
                         "direct_km": float(row["distance_km"]),
-                        "route_km": float(row["salishseacast_water_route_km"]),
-                        "detour_ratio": float(row["salishseacast_detour_ratio"]),
+                        "grid_route_km": float(row["salishseacast_water_route_km"]),
+                        "total_route_proxy_km": float(row["salishseacast_total_route_proxy_km"]),
+                        "total_detour_ratio": float(row["salishseacast_total_detour_ratio"]),
                         "max_endpoint_snap_km": max(
                             float(row["salishseacast_src_snap_km"]),
                             float(row["salishseacast_dst_snap_km"]),
@@ -150,15 +155,18 @@ def compare_route_distance_topologies(
                     }
                     for row in local
                 ),
-                key=lambda item: (-float(item["detour_ratio"]), -float(item["route_km"])),
+                key=lambda item: (
+                    -float(item["total_detour_ratio"]),
+                    -float(item["total_route_proxy_km"]),
+                ),
             )[:15],
         },
         "review_only_edges": len(review_only),
         "notes": [
-            "Curved water-route distance is a stronger geometry proxy than straight-line open-water sampling, but it is still not ecological connectivity probability.",
-            "Direct <=20 km remains a candidate-generation design default only; route thresholds are sensitivity probes.",
-            "Large site-to-grid snap distances indicate that SalishSeaCast is too coarse for some pocket-estuary sites and route values touching those sites should be treated as lower-confidence.",
-            "Do not choose a route threshold because it creates a convenient number of connected components.",
+            "Curved water-route distance is a geometry proxy, not ecological connectivity probability.",
+            "The primary route proxy adds both endpoint snap distances so coarse site-to-grid displacement is not silently ignored.",
+            "The A* grid now permits safe diagonal wet-cell moves to reduce staircase inflation without cutting across land corners.",
+            "Large site-to-grid snap distances still lower confidence for pocket-estuary sites; no route threshold should be treated as ecological truth.",
             "connectivity_weight remains OPEN.",
         ],
     }
