@@ -29,8 +29,8 @@ import torch
 from adaptive_response import FrontierPlanner
 from adaptive_response.rl import (
     ActorCriticTrainer,
-    GNNActorCritic,
     IncidentSamplerConfig,
+    PolicyArchitectureConfig,
     RewardConfig,
     RLPlannerAdapter,
     RoundPolicy,
@@ -38,6 +38,7 @@ from adaptive_response.rl import (
     run_episode,
     run_planner_episode,
     sample_incident,
+    save_policy_checkpoint,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -88,14 +89,23 @@ def make_run_dir(log_dir: str, run_name: str) -> Path:
     return run_dir
 
 
-def save_checkpoint(path: Path, policy: RoundPolicy, trainer: ActorCriticTrainer, update_idx: int) -> None:
-    torch.save(
-        {
-            "update_idx": update_idx,
-            "policy_state_dict": policy.state_dict(),
-            "optimizer_state_dict": trainer.optimizer.state_dict(),
-        },
+def save_checkpoint(
+    path: Path,
+    policy: RoundPolicy,
+    trainer: ActorCriticTrainer,
+    update_idx: int,
+    architecture: PolicyArchitectureConfig,
+    *,
+    run_name: str,
+    seed: int,
+) -> None:
+    save_policy_checkpoint(
         path,
+        policy,
+        architecture=architecture,
+        update_idx=update_idx,
+        optimizer=trainer.optimizer,
+        extra={"run_name": run_name, "seed": seed},
     )
 
 
@@ -148,8 +158,12 @@ def main() -> None:
     eval_incidents = [sample_incident(eval_rng, sampler_config) for _ in range(args.eval_episodes)]
     eval_seeds = [int(eval_rng.integers(0, 2**31 - 1)) for _ in range(args.eval_episodes)]
 
-    backbone = GNNActorCritic(hidden_dim=args.hidden_dim, num_layers=args.num_layers)
-    policy = RoundPolicy(backbone, hidden_dim=args.hidden_dim, effort_per_pick=args.effort_per_pick)
+    architecture = PolicyArchitectureConfig(
+        hidden_dim=args.hidden_dim,
+        num_layers=args.num_layers,
+        effort_per_pick=args.effort_per_pick,
+    )
+    policy = architecture.build()
     trainer = ActorCriticTrainer(
         policy,
         TrainerConfig(
@@ -257,10 +271,19 @@ def main() -> None:
                 )
 
             if update_idx % args.checkpoint_every_updates == 0:
-                save_checkpoint(run_dir / f"checkpoint_{update_idx}.pt", policy, trainer, update_idx)
-                save_checkpoint(run_dir / "latest.pt", policy, trainer, update_idx)
+                save_checkpoint(
+                    run_dir / f"checkpoint_{update_idx}.pt", policy, trainer, update_idx,
+                    architecture, run_name=args.run_name, seed=args.seed,
+                )
+                save_checkpoint(
+                    run_dir / "latest.pt", policy, trainer, update_idx,
+                    architecture, run_name=args.run_name, seed=args.seed,
+                )
     finally:
-        save_checkpoint(run_dir / "final.pt", policy, trainer, update_idx)
+        save_checkpoint(
+            run_dir / "final.pt", policy, trainer, update_idx,
+            architecture, run_name=args.run_name, seed=args.seed,
+        )
         print(f"Saved final checkpoint at update {update_idx} to {run_dir / 'final.pt'}")
 
 

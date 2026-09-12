@@ -15,6 +15,13 @@ with the team, not unilaterally in this module.
 """
 
 from .backbone import ActorCriticOutput, GNNActorCritic
+from .checkpointing import (
+    LoadedCheckpoint,
+    PolicyArchitectureConfig,
+    load_optimizer_state,
+    load_policy_checkpoint,
+    save_policy_checkpoint,
+)
 from .eval_utils import EpisodeMetrics, RLPlannerAdapter, run_planner_episode
 from .incident_sampler import IncidentSamplerConfig, sample_incident
 from .reward import RewardConfig, round_reward, terminal_missed_extent_penalty
@@ -31,6 +38,8 @@ __all__ = [
     "GNNActorCritic",
     "GraphTensors",
     "IncidentSamplerConfig",
+    "LoadedCheckpoint",
+    "PolicyArchitectureConfig",
     "RLPlannerAdapter",
     "RewardConfig",
     "RoundDecision",
@@ -38,9 +47,12 @@ __all__ = [
     "TrainerConfig",
     "UpdateStats",
     "graph_state_to_tensors",
+    "load_optimizer_state",
+    "load_policy_checkpoint",
     "round_reward",
     "run_episode",
     "run_planner_episode",
     "sample_incident",
+    "save_policy_checkpoint",
     "terminal_missed_extent_penalty",
 ]
