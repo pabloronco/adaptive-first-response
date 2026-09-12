@@ -23,12 +23,20 @@ from .models import (
     Site,
 )
 from .planners import FrontierPlanner, Planner
+from .spatial_belief import (
+    EcologicalHypothesis,
+    QHypothesis,
+    SpatialBeliefEngine,
+    SpatialBeliefState,
+    SpatialHypothesis,
+)
 
 __all__ = [
     "AdaptiveMissionLoop",
     "BeliefEngine",
     "BeliefState",
     "EDGE_FEATURE_NAMES",
+    "EcologicalHypothesis",
     "Edge",
     "Environment",
     "FrontierPlanner",
@@ -45,6 +53,10 @@ __all__ = [
     "ObservationBatch",
     "Planner",
     "PublicState",
+    "QHypothesis",
     "RoundTransition",
     "Site",
+    "SpatialBeliefEngine",
+    "SpatialBeliefState",
+    "SpatialHypothesis",
 ]
