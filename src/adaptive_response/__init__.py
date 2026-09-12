@@ -30,6 +30,17 @@ from .spatial_belief import (
     SpatialBeliefState,
     SpatialHypothesis,
 )
+from .world_models import (
+    FragmentedPatchyWorldModel,
+    GeneratedWorld,
+    GraphDiffusionWorldModel,
+    HabitatDrivenWorldModel,
+    SpatialClusterWorldModel,
+    WorldModel,
+    WorldModelContext,
+    default_world_model_split,
+    sample_ecological_hypotheses,
+)
 
 __all__ = [
     "AdaptiveMissionLoop",
@@ -39,10 +50,14 @@ __all__ = [
     "EcologicalHypothesis",
     "Edge",
     "Environment",
+    "FragmentedPatchyWorldModel",
     "FrontierPlanner",
     "GLOBAL_FEATURE_NAMES",
+    "GeneratedWorld",
+    "GraphDiffusionWorldModel",
     "GraphState",
     "GraphStateExporter",
+    "HabitatDrivenWorldModel",
     "HiddenWorld",
     "IncidentConfig",
     "LoopPhase",
@@ -58,5 +73,10 @@ __all__ = [
     "Site",
     "SpatialBeliefEngine",
     "SpatialBeliefState",
+    "SpatialClusterWorldModel",
     "SpatialHypothesis",
+    "WorldModel",
+    "WorldModelContext",
+    "default_world_model_split",
+    "sample_ecological_hypotheses",
 ]
